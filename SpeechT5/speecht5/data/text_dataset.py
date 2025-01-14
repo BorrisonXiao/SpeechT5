@@ -215,7 +215,10 @@ class TextPretrainDataset(FairseqDataset):
             source, target = self.item_transform_func(source, target)
 
         assert (source >= 0).all()
-        assert (source[1:-1] >= 1).all()
+        try:
+            assert (source[1:-1] >= 1).all()
+        except:
+            breakpoint()
         assert (source <= len(self.vocab)).all()
         assert source[0] == self.vocab.bos()
         assert source[-1] == self.eos

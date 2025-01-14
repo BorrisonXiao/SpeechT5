@@ -68,6 +68,9 @@ class T5TransformerModel(FairseqEncoderDecoderModel):
 
         self.text_encoder_prenet = text_encoder_prenet
         self.speech_encoder_prenet = speech_encoder_prenet
+        
+        # Added modality vectors, 0 for text and 1 for speech
+        self.modality_vectors = torch.nn.Embedding(2, args.encoder_embed_dim)
 
         self.text_decoder_prenet = text_decoder_prenet
         self.speech_decoder_prenet = speech_decoder_prenet
@@ -812,6 +815,8 @@ class T5TransformerModel(FairseqEncoderDecoderModel):
         # Encoder Prenet
         if input_type == 'text':
             encoder_input, encoder_padding_mask = self.text_encoder_prenet(src_tokens)
+            # Add the text modality vector to the encoder input
+            encoder_input = encoder_input + self.modality_vectors(torch.tensor(0, device=encoder_input.device))
         else:
             if target_list is not None:
                 encoder_input, encoder_padding_mask = self.speech_encoder_prenet(source, require_feat_pen=True, target_list=target_list, padding_mask=padding_mask, mask=mask)
@@ -826,6 +831,8 @@ class T5TransformerModel(FairseqEncoderDecoderModel):
                 if getattr(self.args, "sid_encoder_cls", None) == "encoder":
                     prev_output_tokens = torch.zeros_like(prev_output_tokens)
                     encoder_input, encoder_padding_mask = self._integrate_with_speaker_cls(prev_output_tokens, encoder_input, encoder_padding_mask)
+            # Add the speech modality vector to the encoder input
+            encoder_input = encoder_input + self.modality_vectors(torch.tensor(1, device=encoder_input.device))
 
         # Encoder: T x B x C
         encoder_output = self.encoder(encoder_input, encoder_padding_mask, tgt_layer=tgt_enc_layer)

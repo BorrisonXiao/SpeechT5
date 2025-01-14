@@ -25,8 +25,10 @@ from fairseq.modules import (
     LayerNorm,
     Fp32LayerNorm,
     TransposeLast,
+    TransformerEncoderLayer,
 )
 import numpy as np
+import copy
 
 logger = logging.getLogger(__name__)
 
@@ -90,12 +92,23 @@ class SpeechEncoderPrenet(nn.Module):
         self.feat2tar_ratio = (
             args.label_rates * feature_ds_rate / args.sample_rate
         )
-
+        
         self.post_extract_proj = (
             nn.Linear(self.embed, args.encoder_embed_dim)
             if self.embed != args.encoder_embed_dim
             else None
         )
+        
+        # Add the transformer encoder layers
+        _args = copy.deepcopy(args)
+        _args.encoder_ffn_embed_dim = args.speech_prenet_encoder_ffn_embed_dim
+        _args.encoder_attention_heads = args.speech_prenet_encoder_attention_heads
+        self.encoder_layers = nn.ModuleList([])
+        self.encoder_layers.extend(
+            [TransformerEncoderLayer(_args) for i in range(args.speech_prenet_encoder_layers)]
+        )
+        self.num_layers = len(self.encoder_layers)
+        self.encoder_layerdrop = args.speech_prenet_encoder_layerdrop
 
         self.use_conv_pos = args.use_conv_pos
         self.use_sinc_pos = args.use_sinc_pos
@@ -196,6 +209,14 @@ class SpeechEncoderPrenet(nn.Module):
             x = x + positions
 
         # x = self.dropout_module(x)
+        
+        has_pads = encoder_padding_mask.any()
+        # Add the transformer encoder layers
+        for i, layer in enumerate(self.encoder_layers):
+            dropout_probability = np.random.random()
+
+            if not self.training or (dropout_probability > self.encoder_layerdrop):
+                x = layer(x, encoder_padding_mask=encoder_padding_mask if has_pads else None, attn_mask=None)
 
         if require_feat_pen:
             return (x, features_pen, mask_indices, target_list), encoder_padding_mask

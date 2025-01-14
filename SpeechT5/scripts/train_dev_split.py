@@ -15,7 +15,10 @@ def train_dev_split(
     with open(data, "r") as f:
         lines = f.readlines()
     for line in lines:
-        texts.append(line)
+        # Remove the empty lines
+        line = line.strip()
+        if line:
+            texts.append(line)
 
     n = len(texts)
     n_train = int(n * ratio)

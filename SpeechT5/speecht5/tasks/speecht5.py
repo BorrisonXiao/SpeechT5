@@ -268,6 +268,31 @@ class SpeechT5Task(LegacyFairseqTask):
             default=0.0,
             help="ctc weight for inference",
         )
+        # Additional arguments
+        parser.add_argument(
+            "--speech-prenet-encoder-ffn-embed-dim",
+            type=int,
+            default=3072,
+            help="speech prenet encoder ffn embed dim",
+        )
+        parser.add_argument(
+            "--speech-prenet-encoder-layers",
+            type=int,
+            default=4,
+            help="speech prenet encoder layers",
+        )
+        parser.add_argument(
+            "--speech-prenet-encoder-attention-heads",
+            type=int,
+            default=8,
+            help="speech prenet encoder attention heads",
+        )
+        parser.add_argument(
+            "--speech-prenet-encoder-layerdrop",
+            type=float,
+            default=0.05,
+            help="speech prenet encoder layerdrop",
+        )
 
     def __init__(self, args, dicts, config):
         super().__init__(args)
@@ -549,7 +574,9 @@ class SpeechT5Task(LegacyFairseqTask):
                 # agg_logging_output[task_name] += logging_output[k]
             agg_logging_output[samples['task_name']] = logging_output
 
-        forward_backward(model, sample)
+        # Cihan: Added autocast for mixed precision training
+        with torch.cuda.amp.autocast():
+            forward_backward(model, sample)
 
         agg_logging_output["loss"] = agg_loss
 
@@ -562,8 +589,8 @@ class SpeechT5Task(LegacyFairseqTask):
 
             agg_loss, agg_sample_size, agg_logging_output = 0.0, 1.0, defaultdict(float)
             agg_logging_output['sample_size'] = 1
-            loss, sample_size, logging_output = criterion(model, sample)
-            loss = loss / sample_size
+            with torch.cuda.amp.autocast():
+                loss, sample_size, logging_output = criterion(model, sample)
             # agg_loss += loss.data.item() if isinstance(loss, torch.Tensor) else loss
             agg_loss += loss.item() if isinstance(loss, torch.Tensor) else loss
             agg_logging_output[sample['task_name']] = logging_output

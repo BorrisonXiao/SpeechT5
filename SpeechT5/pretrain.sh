@@ -14,9 +14,10 @@ n_cluster=500 # Default is 500 from the SpeechT5 paper
 km_path=${data_dir}/kmeans_model.pt
 lm_data_dir=${data_dir}/raw/librispeech-lm-corpus
 spm_model=${ckpt_dir}/spm_char.model
+expdir=exp
 
-stage=5
-stop_stage=5
+stage=1
+stop_stage=1
 
 tsv_dir=${data_dir}/tsv
 feat_dir=${data_dir}/hubert_features
@@ -27,9 +28,10 @@ lab_dir=${data_dir}/hubert_km_labels
 
 if [ $stage -le 1 ] && [ $stop_stage -ge 1 ]; then
     log "Stage 1: Run the pre-training script..."
-    DATA_ROOT=${data_dir}
-    SAVE_DIR=exp/pretrain
-    LABEL_DIR=data/hubert_km_labels
+    JOBID=$(date +%Y%m%d%H%M%S)
+    DATA_ROOT=${data_dir}/pretrain
+    SAVE_DIR=${expdir}/pretrain/${JOBID}
+    LABEL_DIR=${lab_dir}
     TRAIN_SET="speech_train|text_train"
     VALID_SET="speech_valid|text_valid"
 
@@ -41,10 +43,10 @@ if [ $stage -le 1 ] && [ $stop_stage -ge 1 ]; then
         --train-subset ${TRAIN_SET} \
         --valid-subset ${VALID_SET} \
         --hubert-label-dir ${LABEL_DIR} \
-        --distributed-world-size 32 \
+        --distributed-world-size 1 \
         --distributed-port 0 \
         --ddp-backend legacy_ddp \
-        --user-dir SpeechT5/speecht5 \
+        --user-dir speecht5 \
         --log-format json \
         --seed 1337 \
         --fp16 \
