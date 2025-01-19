@@ -58,8 +58,12 @@ if [ $stage -le 1 ] && [ $stop_stage -ge 1 ]; then
         --random-crop \
         \
         --num-workers 0 \
-        --max-tokens 1400000 \
-        --max-speech-sample-size 250000 \
+        --max-tokens 1000000 \
+        --pad-src-tokens-to-max-length 1249 \
+        --batch-size 4 \
+        --max-speech-sample-size 400000 \
+        --pad-audio \
+        --pad-audio-with-max \
         --update-freq 2 \
         --batch-ratio "[1,0.0086]" \
         \

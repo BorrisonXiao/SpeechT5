@@ -186,6 +186,9 @@ class SpeechEncoderPrenet(nn.Module):
         x = x.transpose(1, 2) # [batch, length, hidden_size]
         x = self.layer_norm(x)
         encoder_padding_mask = self.forward_padding_mask(x, encoder_padding_mask)
+        if (target_list[0][~encoder_padding_mask] <= 0).any():
+            # Cihan: Fix the masks so that -100 pads in the target list are not considered
+            encoder_padding_mask = torch.logical_or(encoder_padding_mask, target_list[0] <= 0)
         if self.post_extract_proj is not None:
             x = self.post_extract_proj(x)
         x = self.dropout_module(x)
@@ -211,12 +214,16 @@ class SpeechEncoderPrenet(nn.Module):
         # x = self.dropout_module(x)
         
         has_pads = encoder_padding_mask.any()
+        x = x.transpose(0, 1)
         # Add the transformer encoder layers
         for i, layer in enumerate(self.encoder_layers):
             dropout_probability = np.random.random()
 
             if not self.training or (dropout_probability > self.encoder_layerdrop):
+                # Input to the TransformerEncoderLayer is expected to be of
+                # size (seq_len, batch, embed_dim)
                 x = layer(x, encoder_padding_mask=encoder_padding_mask if has_pads else None, attn_mask=None)
+        x = x.transpose(0, 1) # T x B x C -> B x T x C
 
         if require_feat_pen:
             return (x, features_pen, mask_indices, target_list), encoder_padding_mask
@@ -225,24 +232,40 @@ class SpeechEncoderPrenet(nn.Module):
             return x, encoder_padding_mask
 
     def forward_targets(
-        self, features: torch.Tensor, target_list: List[torch.Tensor],
+        self, features: torch.Tensor, target_list: List[torch.Tensor], pad: int = -100
     ) -> Tuple[torch.Tensor, torch.Tensor]:
-        # Trim features to ensure labels exist and then get aligned labels
+        # Expand the target list to match the size of the features and then
+        # get the aligned labels
         feat_tsz = features.size(2)
         targ_tsz = min([t.size(1) for t in target_list])
         if self.feat2tar_ratio * feat_tsz > targ_tsz:
-            feat_tsz = int(targ_tsz / self.feat2tar_ratio)
-            features = features[..., :feat_tsz]
+            targ_tsz = int(feat_tsz * self.feat2tar_ratio)
+            # Pad the target list
+            target_list = [torch.cat([t, t.new(t.size(0), targ_tsz - t.size(1)).fill_(pad)], dim=1) for t in target_list]
         target_inds = torch.arange(feat_tsz).float() * self.feat2tar_ratio
         target_list = [t[:, target_inds.long()] for t in target_list]
         return features, target_list
+        
+        # # Trim features to ensure labels exist and then get aligned labels
+        # feat_tsz = features.size(2)
+        # breakpoint()
+        # targ_tsz = min([t.size(1) for t in target_list])
+        # if self.feat2tar_ratio * feat_tsz > targ_tsz:
+        #     feat_tsz = int(targ_tsz / self.feat2tar_ratio)
+        #     features = features[..., :feat_tsz]
+        # target_inds = torch.arange(feat_tsz).float() * self.feat2tar_ratio
+        # target_list = [t[:, target_inds.long()] for t in target_list]
+        # return features, target_list
 
     def forward_padding_mask(
         self, features: torch.Tensor, padding_mask: torch.Tensor,
     ) -> torch.Tensor:
         extra = padding_mask.size(1) % features.size(1)
         if extra > 0:
-            padding_mask = padding_mask[:, :-extra]
+            # padding_mask = padding_mask[:, :-extra]
+            # Cihan: Here we trim from the start so that more masks are applied
+            # just to be safe (otherwise paddings will be taken as part of the computation)
+            padding_mask = padding_mask[:, extra:]
         padding_mask = padding_mask.view(
             padding_mask.size(0), features.size(1), -1
         )

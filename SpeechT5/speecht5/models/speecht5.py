@@ -835,6 +835,9 @@ class T5TransformerModel(FairseqEncoderDecoderModel):
             encoder_input = encoder_input + self.modality_vectors(torch.tensor(1, device=encoder_input.device))
 
         # Encoder: T x B x C
+        # Cihan: Here we explicitly set the encoder_padding_mask to all False
+        org_encoder_padding_mask = encoder_padding_mask.clone()
+        encoder_padding_mask = torch.zeros_like(encoder_padding_mask, dtype=torch.bool)
         encoder_output = self.encoder(encoder_input, encoder_padding_mask, tgt_layer=tgt_enc_layer)
 
         if task_name is not None and task_name == 'speech_pretrain' and feature_only:
@@ -848,10 +851,12 @@ class T5TransformerModel(FairseqEncoderDecoderModel):
             elif self.args.sid_pooling_layer == "encoder-speaker" or getattr(self.args, "sid_decoder_speaker", False):
                 return self.speaker_decoder_postnet(encoder_output["encoder_out"][0].transpose(0, 1), sid_target), None
 
+        # Cihan: Here we do not want to compute the hubert loss on the padded frames
+        # so we set the encoder_padding_mask to the original one
         if target_list is not None:
             hubert_results = self.hubert_layer(
-                encoder_output["encoder_out"][0].transpose(0, 1), 
-                encoder_padding_mask, 
+                encoder_output["encoder_in"][0], # B x T x C
+                org_encoder_padding_mask, 
                 mask_indices, 
                 target_list
             )

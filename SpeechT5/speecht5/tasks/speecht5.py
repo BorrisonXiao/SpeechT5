@@ -240,6 +240,11 @@ class SpeechT5Task(LegacyFairseqTask):
             help="pad audio to the longest one in the batch if true",
         )
         parser.add_argument(
+            "--pad-audio-with-max",
+            action="store_true",
+            help="pad audio to the max length in the batch if true",
+        )
+        parser.add_argument(
             "--random-crop",
             action="store_true",
             help="always crop from the beginning if false",
@@ -292,6 +297,18 @@ class SpeechT5Task(LegacyFairseqTask):
             type=float,
             default=0.05,
             help="speech prenet encoder layerdrop",
+        )
+        parser.add_argument(
+            "--pad-src-tokens-to-max-length",
+            type=int,
+            default=None,
+            help="if specified, the source tokens will be padded to this length. Theoretically, this should be same as max-speech-sample-size / hubert-downsample-ratio.",
+        )
+        parser.add_argument(
+            "--pad-tgt-tokens-to-max-length",
+            type=int,
+            default=None,
+            help="if specified, the source tokens will be padded to this length.",
         )
 
     def __init__(self, args, dicts, config):
@@ -447,6 +464,7 @@ class SpeechT5Task(LegacyFairseqTask):
                     min_keep_sample_size=32000,
                     max_sample_size=self.args.max_speech_sample_size,
                     pad_audio=self.args.pad_audio,
+                    pad_audio_with_max=self.args.pad_audio_with_max,
                     normalize=self.args.normalize,
                     store_labels=False,
                     random_crop=self.args.random_crop,
@@ -499,6 +517,7 @@ class SpeechT5Task(LegacyFairseqTask):
                 else None
             )
             self.args.bert_weight = getattr(self.args, "bert_weight", 0.0)
+            pad_to_length = {"source": self.args.pad_src_tokens_to_max_length, "target": self.args.pad_tgt_tokens_to_max_length}
             pretrain_datasets.append(
                 TextPretrainDataset(
                     bart_dataset,
@@ -511,6 +530,7 @@ class SpeechT5Task(LegacyFairseqTask):
                     args=self.args,
                     iid_noise_target=self.args.iid_noise_target,
                     uni_mask_idxs=self.uni_mask_idxs if self.args.iid_noise_target else None,
+                    pad_to_length=pad_to_length,
                 )
             )
             sample_ratios.append(sum(pretrain_datasets[1].sizes))

@@ -129,6 +129,7 @@ class TextPretrainDataset(FairseqDataset):
         item_transform_func=None,
         iid_noise_target=False,
         uni_mask_idxs=None,
+        pad_to_length=None,
     ):
         self.dataset = dataset
 
@@ -150,6 +151,7 @@ class TextPretrainDataset(FairseqDataset):
         self.permute_sentence_ratio = args.permute_sentences
         self.eos = eos if eos is not None else vocab.eos()
         self.item_transform_func = item_transform_func
+        self.pad_to_length = pad_to_length
 
         if args.bpe != "gpt2":
             self.full_stop_index = self.vocab.eos()
@@ -215,10 +217,7 @@ class TextPretrainDataset(FairseqDataset):
             source, target = self.item_transform_func(source, target)
 
         assert (source >= 0).all()
-        try:
-            assert (source[1:-1] >= 1).all()
-        except:
-            breakpoint()
+        assert (source[1:-1] >= 1).all()
         assert (source <= len(self.vocab)).all()
         assert source[0] == self.vocab.bos()
         assert source[-1] == self.eos
@@ -443,7 +442,7 @@ class TextPretrainDataset(FairseqDataset):
             dict: a mini-batch of data
         """
         return collate(
-            samples, self.vocab.pad(), self.eos, self.vocab, pad_to_length=pad_to_length
+            samples, self.vocab.pad(), self.eos, self.vocab, pad_to_length=pad_to_length if pad_to_length is not None else self.pad_to_length
         )
 
     def num_tokens(self, index):

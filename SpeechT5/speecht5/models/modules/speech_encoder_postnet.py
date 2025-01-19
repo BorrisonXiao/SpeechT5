@@ -67,10 +67,15 @@ class SpeechEncoderPostnet(nn.Module):
         logits = logits.transpose(0, 1)  # (num_x, num_cls+1)
         return logits
 
-    def forward(self, x, padding_mask, mask_indices, target_list):
+    def forward(self, x, padding_mask, mask_indices, target_list, pad: int = -100):
         def compute_pred(proj_x, target, label_embs):
             # compute logits for the i-th label set
+            # # Cihan: For padded tokens, the target is -100, so we need to filter them out
+            # _target = target[target != -100]
+            assert (target >= 0).all(), f"target has negative values: {target}"
             y = torch.index_select(label_embs, 0, target.long())
+            # Pad y with zeros to match the shape of proj_x
+            y = torch.cat([y, torch.zeros(proj_x.size(0) - y.size(0), y.size(1)).to(y.device)], dim=0)
             negs = label_embs.unsqueeze(1).expand(-1, proj_x.size(0), -1)
             if self.target_glu:
                 y = self.target_glu(y)
@@ -80,8 +85,8 @@ class SpeechEncoderPostnet(nn.Module):
             # negs: (Neg, S, D)
             return self.compute_nce(proj_x, y, negs)
 
-        label_embs_list = self.label_embs_concat.split(self.num_classes, 0)
 
+        label_embs_list = self.label_embs_concat.split(self.num_classes, 0)
         if not self.skip_masked:
             masked_indices = torch.logical_and(~padding_mask, mask_indices)
             proj_x_m = self.final_proj(x[masked_indices])
@@ -95,6 +100,7 @@ class SpeechEncoderPostnet(nn.Module):
                     zip(proj_x_m_list, target_list)
                 )
             ]
+            # compute_pred(proj_x_m_list[0], target_list[0][masked_indices], label_embs_list[0])
         else:
             logit_m_list = [None for _ in target_list]
 

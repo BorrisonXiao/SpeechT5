@@ -214,6 +214,7 @@ class TransformerEncoder(FairseqEncoder):
                   hidden states of shape `(src_len, batch, embed_dim)`.
                   Only populated if *return_all_hiddens* is True.
         """
+        _encoder_in = encoder_in.clone()
         if self.no_freeze_encoder_layer is not None:
             ft = self.freeze_encoder_updates <= self.num_updates
         else:
@@ -288,6 +289,7 @@ class TransformerEncoder(FairseqEncoder):
             "encoder_states": encoder_states,  # List[T x B x C]
             "src_tokens": [],
             "decoder_input": [d],
+            "encoder_in": [_encoder_in],
         }
 
     @torch.jit.export

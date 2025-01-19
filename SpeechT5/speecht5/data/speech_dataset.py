@@ -198,6 +198,7 @@ class SpeechPretrainDataset(FairseqDataset):
         max_sample_size: Optional[int] = None,
         shuffle: bool = True,
         pad_audio: bool = False,
+        pad_audio_with_max: bool = False,
         normalize: bool = False,
         store_labels: bool = True,
         random_crop: bool = False,
@@ -239,6 +240,7 @@ class SpeechPretrainDataset(FairseqDataset):
             max_sample_size if max_sample_size is not None else sys.maxsize
         )
         self.pad_audio = pad_audio
+        self.pad_audio_with_max = pad_audio_with_max
         self.normalize = normalize
         self.reduction_factor = reduction_factor
         logger.info(
@@ -313,7 +315,10 @@ class SpeechPretrainDataset(FairseqDataset):
         fbank_sizes = [len(s) for s in fbanks]
         
         if self.pad_audio:
-            audio_size = min(max(audio_sizes), self.max_sample_size)
+            if self.pad_audio_with_max:
+                audio_size = self.max_sample_size
+            else:
+                audio_size = min(max(audio_sizes), self.max_sample_size)
         else:
             audio_size = min(min(audio_sizes), self.max_sample_size)
         collated_audios, padding_mask, audio_starts = self.collater_audio(
@@ -450,6 +455,8 @@ class SpeechPretrainDataset(FairseqDataset):
 
     def size(self, index):
         if self.pad_audio:
+            if self.pad_audio_with_max:
+                return self.max_sample_size
             return self.sizes[index]
         return min(self.sizes[index], self.max_sample_size)
 
