@@ -28,6 +28,9 @@ def collate(
     assert input_feeding
     if len(samples) == 0:
         return {}
+    
+    # TODO (Cihan): Add a max length crop here
+    breakpoint()
 
     def merge(key, left_pad, move_eos_to_beginning=False, pad_to_length=None):
         return data_utils.collate_tokens(

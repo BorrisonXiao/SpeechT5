@@ -1,4 +1,25 @@
 #!/usr/bin/env bash
+#
+#SBATCH --job-name=pretrain
+#SBATCH --nodes=1
+#SBATCH --gpus=1
+#SBATCH --partition=reserve_q
+#SBATCH -w d02
+#SBATCH --account=reserve
+#SBATCH --time=240:00:00
+#SBATCH --output=logs/%j.out
+
+module purge
+module load conda
+module load cuda/12.3
+conda --version
+/bin/hostname
+nvidia-smi
+
+. ~/.bashrc
+conda activate /home/cxiao7/research/discrete/espnet_meili/tools/miniconda/envs/mult5
+export LD_LIBRARY_PATH=$HOME/research/discrete/espnet_meili/tools/miniconda/envs/mult5/lib/python3.9/site-packages/nvidia/nvjitlink/lib:$LD_LIBRARY_PATH
+export PYTHONPATH=$PYTHONPATH:$PWD/fairseq
 
 set -eou pipefail
 
@@ -81,7 +102,7 @@ if [ $stage -le 1 ] && [ $stop_stage -ge 1 ]; then
         --max-update 800000 \
         --warmup-updates 64000 \
         --total-num-update 800000 \
-        --save-interval-updates 3000 \
+        --save-interval-updates 1 \
         --skip-invalid-size-inputs-valid-test \
         --required-batch-size-multiple 1 \
         \

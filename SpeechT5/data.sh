@@ -13,13 +13,18 @@ ckpt_dir=models
 n_cluster=500 # Default is 500 from the SpeechT5 paper
 km_path=${data_dir}/kmeans_model.pt
 lm_data_dir=${data_dir}/raw/librispeech-lm-corpus
-spm_model=${ckpt_dir}/spm_char.model
-train_split=0.95
+spm_dir=${ckpt_dir}/self_trained
+vocab_size=3000
+spm_model=${spm_dir}/spm_bpe_${vocab_size}.model
+train_split=0.98
 org_data_dir=/export/fs05/cxiao7/LibriSpeech
 xvector_dir=/home/cxiao7/research/mult5/SpeechT5/SpeechT5/data/xvectors.zip
+train_spm=true
+dict_path=
+max_token_len=1249
 
-stage=2
-stop_stage=2
+stage=4
+stop_stage=4
 
 train_sets="train-clean-100 train-clean-360 train-other-500"
 dev_sets="dev-clean dev-other"
@@ -125,31 +130,64 @@ fi
 if [ $stage -le 4 ] && [ $stop_stage -ge 4 ]; then
     log "Stage 4: Prepare the text data..."
     # Perform train/dev split of the text data, also remove the empty lines
-    python scripts/train_dev_split.py \
-        -i ${text_dir}/text \
-        -o ${text_dir}
+    # python scripts/train_dev_split.py \
+    #     -i ${text_dir}/text \
+    #     -o ${text_dir} \
+    #     --merge-style "gaussian" \
+    #     --sanitize \
+    #     --dict ${ckpt_dir}/dict.txt \
+    #     --ratio ${train_split} \
+    #     --merge-params "400|50"
+
+    # # # Train a SPM tokenizer on the text data if train_spm is set to true
+    # if [ $train_spm = true ]; then
+    #     mkdir -p ${spm_dir}
+    #     python /home/cxiao7/research/mult5/SpeechT5/SpeechT5/fairseq/scripts/spm_train.py \
+    #         --input=${text_dir}/text_train.txt \
+    #         --model_prefix=${spm_model} \
+    #         --train_extremely_large_corpus=true \
+    #         --shuffle_input_sentence=true \
+    #         --input_sentence_size=2000000 \
+    #         --model_type=bpe \
+    #         --vocab_size=${vocab_size}
+    # fi
 
     # Tokenize the text data
     for split in "text_train" "text_valid"; do
-        python /home/cxiao7/research/mult5/SpeechT5/SpeechT5/fairseq/scripts/spm_encode.py \
-            --model ${spm_model} \
-            --output_format=piece \
-            --inputs ${text_dir}/${split}.txt \
-            --outputs ${text_dir}/${split}.token
+        # python /home/cxiao7/research/mult5/SpeechT5/SpeechT5/fairseq/scripts/spm_encode.py \
+        #     --model ${spm_model}.model \
+        #     --output_format=piece \
+        #     --inputs ${text_dir}/${split}.txt \
+        #     --outputs ${text_dir}/${split}.token \
+        #     --max-len ${max_token_len}
+
+        # Plot the token length distribution
+        stats_dir=${text_dir}/stats
+        mkdir -p ${stats_dir}
+        python scripts/plot_token_len.py \
+            -i ${text_dir}/${split}.token \
+            -o ${stats_dir}/${split}_token_len.png
     done
 fi
 
 if [ $stage -le 5 ] && [ $stop_stage -ge 5 ]; then
-    log "Stage 5: Prepare the text data using faieseq..."
+    log "Stage 5: Prepare the text data using fairseq..."
     DEST_DIR=${text_dir}/bins
-    DICT=/home/cxiao7/research/mult5/SpeechT5/SpeechT5/models/dict.txt
-    # fairseq-preprocess \
-    #     --only-source \
-    #     --trainpref ${text_dir}/text_valid.token \
-    #     --validpref ${text_dir}/text_valid.token \
-    #     --destdir ${DEST_DIR} \
-    #     --srcdict ${DICT} \
-    #     --workers 20
+    # Set DICT to the specified dict path if it is not empty
+    # Otherwise use the trained spm vocab file ${spm_model}.vocab
+    if [ -z ${dict_path} ]; then
+        cut -f1 ${spm_model}.vocab | tail -n +4 | sed "s/$/ 1/g" > ${spm_model}.fairseq.vocab
+        DICT=${spm_model}.fairseq.vocab
+    else
+        DICT=${dict_path}
+    fi
+    fairseq-preprocess \
+        --only-source \
+        --trainpref ${text_dir}/text_train.token \
+        --validpref ${text_dir}/text_valid.token \
+        --destdir ${DEST_DIR} \
+        --srcdict ${DICT} \
+        --workers 20
 
     ln -sfv ${PWD}/${DEST_DIR}/train.bin ${DEST_DIR}/text_train.bin
     ln -sfv ${PWD}/${DEST_DIR}/valid.bin ${DEST_DIR}/text_valid.bin
