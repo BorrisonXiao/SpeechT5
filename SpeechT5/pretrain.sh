@@ -79,10 +79,11 @@ if [ $stage -le 1 ] && [ $stop_stage -ge 1 ]; then
         --random-crop \
         \
         --num-workers 0 \
-        --max-tokens 1000000 \
+        --max-tokens 5000000 \
         --pad-src-tokens-to-max-length 1249 \
         --batch-size 4 \
         --max-speech-sample-size 400000 \
+        --mel-hop-scale 2 \
         --pad-audio \
         --pad-audio-with-max \
         --update-freq 2 \
@@ -102,11 +103,12 @@ if [ $stage -le 1 ] && [ $stop_stage -ge 1 ]; then
         --max-update 800000 \
         --warmup-updates 64000 \
         --total-num-update 800000 \
-        --save-interval-updates 1 \
+        --save-interval-updates 3000 \
         --skip-invalid-size-inputs-valid-test \
         --required-batch-size-multiple 1 \
         \
         --arch t5_transformer_base \
+        --encoder-speech-prenet mel \
         --share-input-output-embed \
         --find-unused-parameters \
         --bert-init \

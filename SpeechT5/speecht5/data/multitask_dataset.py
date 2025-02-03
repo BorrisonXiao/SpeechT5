@@ -32,6 +32,7 @@ class MultitaskDataset(FairseqDataset):
         super(MultitaskDataset, self).__init__()
         assert len(datasets) > 0, "datasets should not be an empty iterable"
         self.datasets = list(datasets)
+        # When batch_ratio is provided, each dataset's effective batch size becomes max_tokens * batch_ratio[i]
         if isinstance(sample_ratios, int):
             sample_ratios = [sample_ratios] * len(self.datasets)
             if batch_ratio is not None:

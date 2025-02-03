@@ -24,7 +24,7 @@ dict_path=
 max_token_len=1249
 
 stage=4
-stop_stage=4
+stop_stage=6
 
 train_sets="train-clean-100 train-clean-360 train-other-500"
 dev_sets="dev-clean dev-other"
@@ -139,7 +139,7 @@ if [ $stage -le 4 ] && [ $stop_stage -ge 4 ]; then
     #     --ratio ${train_split} \
     #     --merge-params "400|50"
 
-    # # # Train a SPM tokenizer on the text data if train_spm is set to true
+    # Train a SPM tokenizer on the text data if train_spm is set to true
     # if [ $train_spm = true ]; then
     #     mkdir -p ${spm_dir}
     #     python /home/cxiao7/research/mult5/SpeechT5/SpeechT5/fairseq/scripts/spm_train.py \
@@ -154,12 +154,12 @@ if [ $stage -le 4 ] && [ $stop_stage -ge 4 ]; then
 
     # Tokenize the text data
     for split in "text_train" "text_valid"; do
-        # python /home/cxiao7/research/mult5/SpeechT5/SpeechT5/fairseq/scripts/spm_encode.py \
-        #     --model ${spm_model}.model \
-        #     --output_format=piece \
-        #     --inputs ${text_dir}/${split}.txt \
-        #     --outputs ${text_dir}/${split}.token \
-        #     --max-len ${max_token_len}
+        python /home/cxiao7/research/mult5/SpeechT5/SpeechT5/fairseq/scripts/spm_encode.py \
+            --model ${spm_model}.model \
+            --output_format=piece \
+            --inputs ${text_dir}/${split}.txt \
+            --outputs ${text_dir}/${split}.token \
+            --max-len ${max_token_len}
 
         # Plot the token length distribution
         stats_dir=${text_dir}/stats

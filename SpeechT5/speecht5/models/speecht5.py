@@ -253,8 +253,8 @@ class T5TransformerModel(FairseqEncoderDecoderModel):
             "--encoder-speech-prenet",
             default="conv",
             type=str,
-            choices=["conv", "linear"],
-            help="The type of encoder speech prenet, e.g., conv or linear."
+            choices=["conv", "linear", "mel"],
+            help="The type of encoder speech prenet, e.g., conv or linear or mel."
         )
         parser.add_argument(
             "--conv-kernel-sizes",
@@ -601,6 +601,19 @@ class T5TransformerModel(FairseqEncoderDecoderModel):
             help="mode for feature extractor. default has a single group "
             "norm with d groups in the first conv block, whereas layer_norm "
             "has layer norms in every block (meant to use with normalize=True)"
+        )
+        parser.add_argument(
+            "--mel-hop-scale",
+            type=int,
+            default=2,
+            help="the hop size scaler for the speech encoder prenet's mel feature extractor "
+            "this dictates the hop size based on the conv_feature_layers"
+        )
+        parser.add_argument(
+            "--num-mels",
+            type=int,
+            default=80,
+            help="number of mel features to extract for the prenet"
         )
 
         # others

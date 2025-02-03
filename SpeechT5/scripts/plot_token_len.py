@@ -14,7 +14,7 @@ def plot_token_length_distribution(token_sequences, output_path=None):
     
     total_sents = len(token_sequences)
     plt.hist(token_lengths, bins=range(1, max(token_lengths) + 2), edgecolor='black')
-    plt.title(f'Token Length Distribution ({total_sents})')
+    plt.title(f'Token Length Distribution ({total_sents:,})')
     plt.xlabel('Token Length')
     plt.ylabel('Frequency')
     if output_path:

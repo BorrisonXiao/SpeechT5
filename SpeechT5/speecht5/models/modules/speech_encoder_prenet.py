@@ -30,6 +30,8 @@ from fairseq.modules import (
 import numpy as np
 import copy
 
+from ...data.speech_dataset import logmelfilterbank
+
 logger = logging.getLogger(__name__)
 
 
@@ -78,17 +80,34 @@ class SpeechEncoderPrenet(nn.Module):
         self.padding_idx = 1
         self.freeze_encoder_updates = args.freeze_encoder_updates
         self.num_updates = 0
-        assert args.encoder_speech_prenet in ["conv", "linear"], args.encoder_speech_prenet
+        assert args.encoder_speech_prenet in ["conv", "linear", "mel"], args.encoder_speech_prenet
         feature_enc_layers = eval(args.conv_feature_layers)  # noqa
         self.embed = feature_enc_layers[-1][0]
+        self.encoder_speech_prenet = args.encoder_speech_prenet
+        if args.encoder_speech_prenet in ["conv", "linear"]:
 
-        self.feature_extractor = ConvFeatureExtractionModel(
-            conv_layers=feature_enc_layers,
-            dropout=0.0,
-            mode=args.extractor_mode,
-            conv_bias=args.conv_bias,
-        )
+            self.feature_extractor = ConvFeatureExtractionModel(
+                conv_layers=feature_enc_layers,
+                dropout=0.0,
+                mode=args.extractor_mode,
+                conv_bias=args.conv_bias,
+            )
+        elif args.encoder_speech_prenet == "mel":
+            # Cihan: Here we still use the conv_feature_layers to define the mel extractor since they must match
+            self.feature_extractor = MelFeatureExtractionModel(
+                num_mels=args.num_mels,
+                embed_dim=self.embed,
+                mel_hop_scale=args.mel_hop_scale,
+            )
+            self.feature_extractor2 = ConvFeatureExtractionModel(
+                conv_layers=feature_enc_layers,
+                dropout=0.0,
+                mode=args.extractor_mode,
+                conv_bias=args.conv_bias,
+            )
+            self.mel_hop_scale = args.mel_hop_scale
         feature_ds_rate = np.prod([s for _, _, s in feature_enc_layers])
+        self.feature_ds_rate = feature_ds_rate
         self.feat2tar_ratio = (
             args.label_rates * feature_ds_rate / args.sample_rate
         )
@@ -318,6 +337,79 @@ class SpeechEncoderPrenet(nn.Module):
     def set_num_updates(self, num_updates):
         """Set the number of parameters updates."""
         self.num_updates = num_updates
+        
+        
+class MelFeatureExtractionModel(nn.Module):
+    def __init__(self, num_mels=80, embed_dim=512, mel_hop_scale=1):
+        super().__init__()
+
+        self.linear = nn.Linear(num_mels * mel_hop_scale, embed_dim)
+        self.num_mels = num_mels
+        self.mel_hop_scale = mel_hop_scale
+        
+    def forward(
+        self,
+        audio: torch.Tensor,
+        sampling_rate: int = 16000,
+        fft_size=1024,
+        feature_ds_rate=320,
+        win_length=None,
+        window="hann",
+        fmin=80,
+        fmax=7600,
+        eps=1e-10,
+    ):
+        mel_hop_scale = self.mel_hop_scale
+        # Step 1: convert to numpy array
+        x = audio.cpu().numpy()
+        # Step 2: compute log mel spectrogram on each sample
+        hop_size = feature_ds_rate // mel_hop_scale
+        y = []
+        for x_i in x:
+            y_i = logmelfilterbank(
+                x_i,
+                sampling_rate,
+                fft_size=fft_size,
+                hop_size=hop_size,
+                win_length=win_length,
+                window=window,
+                num_mels=self.num_mels,
+                fmin=fmin,
+                fmax=fmax,
+                eps=eps,
+            )
+            y.append(y_i)
+        # Step 3: convert to torch tensor
+        y = torch.tensor(np.array(y), device=audio.device) # [batch, length, hidden_size]
+        y = y.transpose(1, 2) # [batch, hidden_size, length]
+        # Step 4: if mel_hop_scale is not 1, up/downsample the features accordingly
+        # For upsampling, we simply duplicate the features.
+        if mel_hop_scale > 1:
+            # For downsampling, we concatenate the features in the hidden_size dimension and
+            # truncate the extra frames (-1 due to hubert implementation).
+            # e.g. [4, 80, 100] -> [4, 160, 50] for mel_hop_scale=2
+            # Drop the extra frames in the length dimension which are not divisible by mel_hop_scale
+            batch_size, hidden_size, length = y.shape
+            if length % mel_hop_scale != 0:
+                y = y[:, :, :length - length % mel_hop_scale]
+            _, _, length = y.shape
+            y = y.view(batch_size, hidden_size, -1, mel_hop_scale)
+            y = y.permute(0, 3, 1, 2).reshape(batch_size, hidden_size * mel_hop_scale, length // mel_hop_scale)
+
+            # # Trim the extra frames, a hack to match the hubert extractor dimension
+            # if length // mel_hop_scale * mel_hop_scale == length:
+            #     _length = -1
+            # else:
+            #     _length = length // mel_hop_scale
+            _length = -1
+            # The last few frames are usually just paddings, so it's probably okay to just drop them
+            y = y[:, :, :_length]
+        elif mel_hop_scale < 1:
+            raise NotImplementedError
+
+        y = self.linear(y.transpose(1, 2)).transpose(1, 2)
+        return y
+
 
 class ConvFeatureExtractionModel(nn.Module):
     def __init__(
