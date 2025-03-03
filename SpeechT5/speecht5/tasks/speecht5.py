@@ -33,7 +33,11 @@ from speecht5.data.speech_dataset import SpeechPretrainDataset
 from speecht5.data.text_dataset import TextPretrainDataset
 from fairseq.data.shorten_dataset import maybe_shorten_dataset
 from fairseq.tasks import LegacyFairseqTask, register_task
-from fairseq.tasks.hubert_pretraining import LabelEncoder 
+from fairseq.tasks.hubert_pretraining import LabelEncoder
+
+from torch.profiler import profile, record_function, ProfilerActivity
+import torch._dynamo
+torch._dynamo.config.suppress_errors = True
 
 logger = logging.getLogger(__name__)
 
@@ -310,6 +314,16 @@ class SpeechT5Task(LegacyFairseqTask):
             default=None,
             help="if specified, the source tokens will be padded to this length.",
         )
+        parser.add_argument(
+            "--profiler",
+            action="store_true",
+            help="if set, profile the code",
+        )
+        parser.add_argument(
+            "--gradient-checkpointing",
+            action='store_true',
+            help="whether to use gradient checkpointing",
+        )
 
     def __init__(self, args, dicts, config):
         super().__init__(args)
@@ -336,6 +350,7 @@ class SpeechT5Task(LegacyFairseqTask):
             self.uni_mask_idxs = torch.tensor(self.uni_mask_idxs)
 
         self.seed = args.seed
+        self.profile = args.profiler
 
     @classmethod
     def setup_task(cls, args, **kwargs):
@@ -575,7 +590,26 @@ class SpeechT5Task(LegacyFairseqTask):
             nonlocal agg_loss, agg_logging_output
             if samples is None or len(samples) == 0:
                 return
-            loss, sample_size, logging_output = criterion(model, samples)
+            # Profiling code
+            if self.profile:
+                if torch.cuda.is_available():
+                    device = 'cuda'
+                elif torch.xpu.is_available():
+                    device = 'xpu'
+
+                torch.cuda.reset_peak_memory_stats()  # Reset before measurement
+                activities = [ProfilerActivity.CPU, ProfilerActivity.CUDA]
+                sort_by_keyword = device + "_memory_usage"
+                with profile(activities=activities, profile_memory=True, record_shapes=True) as prof:
+                    loss, sample_size, logging_output = criterion(model, samples)
+                total_memory = sum(event.device_memory_usage for event in prof.key_averages())
+                peak_memory = torch.cuda.max_memory_allocated()
+                print(torch.cuda.memory_summary(device="cuda", abbreviated=True))
+                print(f"Total GPU Memory Usage: {total_memory / 1e6:.2f} MB")  # Convert bytes to MB
+                print(f"Peak Memory Allocated: {peak_memory / 1e6:.2f} MB") # Convert bytes to MB
+                print(prof.key_averages().table(sort_by=sort_by_keyword, row_limit=10))
+            else:
+                loss, sample_size, logging_output = criterion(model, samples)
             if ignore_grad:
                 loss *= 0
             else:
@@ -595,7 +629,7 @@ class SpeechT5Task(LegacyFairseqTask):
             agg_logging_output[samples['task_name']] = logging_output
 
         # Cihan: Added autocast for mixed precision training
-        with torch.cuda.amp.autocast():
+        with torch.amp.autocast('cuda'):
             forward_backward(model, sample)
 
         agg_logging_output["loss"] = agg_loss
@@ -609,7 +643,7 @@ class SpeechT5Task(LegacyFairseqTask):
 
             agg_loss, agg_sample_size, agg_logging_output = 0.0, 1.0, defaultdict(float)
             agg_logging_output['sample_size'] = 1
-            with torch.cuda.amp.autocast():
+            with torch.amp.autocast('cuda'):
                 loss, sample_size, logging_output = criterion(model, sample)
             # agg_loss += loss.data.item() if isinstance(loss, torch.Tensor) else loss
             agg_loss += loss.item() if isinstance(loss, torch.Tensor) else loss
@@ -641,7 +675,9 @@ class SpeechT5Task(LegacyFairseqTask):
         args.label_rates = self.args.label_rates
         args.sample_rate = self.args.sample_rate
         self.args.reduction_factor = args.reduction_factor
-        return super(SpeechT5Task, self).build_model(args)
+        model = super(SpeechT5Task, self).build_model(args)
+        return torch.compile(model)
+        # return model
 
     def build_generator(
         self,

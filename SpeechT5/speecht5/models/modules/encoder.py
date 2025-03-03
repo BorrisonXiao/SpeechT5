@@ -24,6 +24,7 @@ from fairseq.modules import (
 )
 from torch import Tensor
 from .transformer_layer import TransformerSentenceEncoderLayer
+from fairseq.modules.checkpoint_activations import checkpoint_wrapper
 
 
 
@@ -129,6 +130,9 @@ class TransformerEncoder(FairseqEncoder):
             )
         else:
             layer = TransformerEncoderLayer(args)
+            
+        if getattr(args, "gradient_checkpointing", False):
+            layer = checkpoint_wrapper(layer)
         return layer
 
     def forward(

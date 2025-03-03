@@ -2,7 +2,7 @@
 #
 #SBATCH --job-name=pretrain
 #SBATCH --nodes=1
-#SBATCH --gpus=1
+#SBATCH --gpus=4
 #SBATCH --partition=reserve_q
 #SBATCH -w d02
 #SBATCH --account=reserve
@@ -106,6 +106,7 @@ if [ $stage -le 1 ] && [ $stop_stage -ge 1 ]; then
         --save-interval-updates 3000 \
         --skip-invalid-size-inputs-valid-test \
         --required-batch-size-multiple 1 \
+        --keep-last-epochs 5 \
         \
         --arch t5_transformer_base \
         --encoder-speech-prenet mel \
@@ -116,5 +117,7 @@ if [ $stage -le 1 ] && [ $stop_stage -ge 1 ]; then
         --use-codebook \
         --codebook-prob 0.1 \
         --loss-weights="[10,0.1]" \
+        --profiler \
+        --gradient-checkpointing \
         --max-text-positions 600
 fi

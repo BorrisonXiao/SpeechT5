@@ -27,6 +27,7 @@ from fairseq.modules import (
     TransposeLast,
     TransformerEncoderLayer,
 )
+from fairseq.modules.checkpoint_activations import checkpoint_wrapper
 import numpy as np
 import copy
 
@@ -85,7 +86,6 @@ class SpeechEncoderPrenet(nn.Module):
         self.embed = feature_enc_layers[-1][0]
         self.encoder_speech_prenet = args.encoder_speech_prenet
         if args.encoder_speech_prenet in ["conv", "linear"]:
-
             self.feature_extractor = ConvFeatureExtractionModel(
                 conv_layers=feature_enc_layers,
                 dropout=0.0,
@@ -98,12 +98,6 @@ class SpeechEncoderPrenet(nn.Module):
                 num_mels=args.num_mels,
                 embed_dim=self.embed,
                 mel_hop_scale=args.mel_hop_scale,
-            )
-            self.feature_extractor2 = ConvFeatureExtractionModel(
-                conv_layers=feature_enc_layers,
-                dropout=0.0,
-                mode=args.extractor_mode,
-                conv_bias=args.conv_bias,
             )
             self.mel_hop_scale = args.mel_hop_scale
         feature_ds_rate = np.prod([s for _, _, s in feature_enc_layers])
@@ -123,9 +117,14 @@ class SpeechEncoderPrenet(nn.Module):
         _args.encoder_ffn_embed_dim = args.speech_prenet_encoder_ffn_embed_dim
         _args.encoder_attention_heads = args.speech_prenet_encoder_attention_heads
         self.encoder_layers = nn.ModuleList([])
-        self.encoder_layers.extend(
-            [TransformerEncoderLayer(_args) for i in range(args.speech_prenet_encoder_layers)]
-        )
+        if getattr(args, "gradient_checkpointing", False):
+            self.encoder_layers.extend(
+                [checkpoint_wrapper(TransformerEncoderLayer(_args)) for i in range(args.speech_prenet_encoder_layers)]
+            )
+        else:
+            self.encoder_layers.extend(
+                [TransformerEncoderLayer(_args) for i in range(args.speech_prenet_encoder_layers)]
+            )
         self.num_layers = len(self.encoder_layers)
         self.encoder_layerdrop = args.speech_prenet_encoder_layerdrop
 
