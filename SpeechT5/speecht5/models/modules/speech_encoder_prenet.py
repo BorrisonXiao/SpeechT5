@@ -27,6 +27,7 @@ from fairseq.modules import (
     TransposeLast,
     TransformerEncoderLayer,
 )
+from fairseq.distributed import fsdp_wrap
 from fairseq.modules.checkpoint_activations import checkpoint_wrapper
 import numpy as np
 import copy
@@ -34,6 +35,8 @@ import copy
 from ...data.speech_dataset import logmelfilterbank
 
 logger = logging.getLogger(__name__)
+
+DEFAULT_MIN_PARAMS_TO_WRAP = int(1e5)
 
 
 class LinearLayer(nn.Module):
@@ -117,10 +120,27 @@ class SpeechEncoderPrenet(nn.Module):
         _args.encoder_ffn_embed_dim = args.speech_prenet_encoder_ffn_embed_dim
         _args.encoder_attention_heads = args.speech_prenet_encoder_attention_heads
         self.encoder_layers = nn.ModuleList([])
-        if getattr(args, "gradient_checkpointing", False):
-            self.encoder_layers.extend(
-                [checkpoint_wrapper(TransformerEncoderLayer(_args)) for i in range(args.speech_prenet_encoder_layers)]
-            )
+        checkpoint = getattr(args, "gradient_checkpointing", False)
+        if checkpoint:
+            for i in range(args.speech_prenet_encoder_layers):
+                use_pytorch_checkpoint = args.ddp_backend == "pytorch_ddp"
+                offload_to_cpu = getattr(args, "cpu_offload", False)
+                # use_reentrant must be False to enable DDP with checkpointing
+                layer = checkpoint_wrapper(
+                    TransformerEncoderLayer(_args),
+                    use_pytorch_checkpoint=use_pytorch_checkpoint,
+                    use_reentrant=False,
+                    offload_to_cpu=offload_to_cpu,
+                )
+                # if we are checkpointing, enforce that FSDP always wraps the
+                # checkpointed layer, regardless of layer size
+                min_params_to_wrap = (
+                    getattr(args, "min_params_to_wrap", DEFAULT_MIN_PARAMS_TO_WRAP)
+                    if not checkpoint
+                    else 0
+                )
+                layer = fsdp_wrap(layer, min_num_params=min_params_to_wrap)
+                self.encoder_layers.append(layer)
         else:
             self.encoder_layers.extend(
                 [TransformerEncoderLayer(_args) for i in range(args.speech_prenet_encoder_layers)]
@@ -249,6 +269,7 @@ class SpeechEncoderPrenet(nn.Module):
             # For consistence with encoder
             return x, encoder_padding_mask
 
+    @torch.compiler.disable(recursive=False)
     def forward_targets(
         self, features: torch.Tensor, target_list: List[torch.Tensor], pad: int = -100
     ) -> Tuple[torch.Tensor, torch.Tensor]:
@@ -258,8 +279,13 @@ class SpeechEncoderPrenet(nn.Module):
         targ_tsz = min([t.size(1) for t in target_list])
         if self.feat2tar_ratio * feat_tsz > targ_tsz:
             targ_tsz = int(feat_tsz * self.feat2tar_ratio)
+            assert targ_tsz > 0, f"{feat_tsz} * {self.feat2tar_ratio} = {feat_tsz * self.feat2tar_ratio}"
             # Pad the target list
-            target_list = [torch.cat([t, t.new(t.size(0), targ_tsz - t.size(1)).fill_(pad)], dim=1) for t in target_list]
+            _target_list = []
+            for t in target_list:
+                assert t.size(1) <= targ_tsz, f"{t.size(1)} vs {feat_tsz} * {self.feat2tar_ratio} = {feat_tsz * self.feat2tar_ratio}:{int(feat_tsz * self.feat2tar_ratio)}:{targ_tsz}"
+                _target_list.append(torch.cat([t, t.new(t.size(0), targ_tsz - t.size(1)).fill_(pad)], dim=1))
+            target_list = _target_list
         target_inds = torch.arange(feat_tsz).float() * self.feat2tar_ratio
         target_list = [t[:, target_inds.long()] for t in target_list]
         return features, target_list
@@ -379,7 +405,7 @@ class MelFeatureExtractionModel(nn.Module):
             )
             y.append(y_i)
         # Step 3: convert to torch tensor
-        y = torch.tensor(np.array(y), device=audio.device) # [batch, length, hidden_size]
+        y = torch.tensor(np.array(y), device=audio.device, dtype=self.linear.weight.dtype) # [batch, length, hidden_size]
         y = y.transpose(1, 2) # [batch, hidden_size, length]
         # Step 4: if mel_hop_scale is not 1, up/downsample the features accordingly
         # For upsampling, we simply duplicate the features.

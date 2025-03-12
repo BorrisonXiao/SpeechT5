@@ -38,6 +38,7 @@ from fairseq.tasks.hubert_pretraining import LabelEncoder
 from torch.profiler import profile, record_function, ProfilerActivity
 import torch._dynamo
 torch._dynamo.config.suppress_errors = True
+torch._dynamo.config.optimize_ddp = False
 
 logger = logging.getLogger(__name__)
 
@@ -351,6 +352,7 @@ class SpeechT5Task(LegacyFairseqTask):
 
         self.seed = args.seed
         self.profile = args.profiler
+        self.fp16 = args.fp16
 
     @classmethod
     def setup_task(cls, args, **kwargs):
@@ -615,9 +617,13 @@ class SpeechT5Task(LegacyFairseqTask):
             else:
                 loss *= weight
             loss = loss / sample_size
+            # @torch.compiler.disable(recursive=True)
+            # def backward(loss):
+            #     optimizer.backward(loss)
+            # backward(loss)
             optimizer.backward(loss)
             agg_loss += loss.detach().item()
-            # # TODO make summing of the sample sizes configurable
+            # TODO make summing of the sample sizes configurable
             for k in logging_output:
                 if k == 'ntokens' or k == 'nsentences':
                     if k not in agg_logging_output:
@@ -629,7 +635,7 @@ class SpeechT5Task(LegacyFairseqTask):
             agg_logging_output[samples['task_name']] = logging_output
 
         # Cihan: Added autocast for mixed precision training
-        with torch.amp.autocast('cuda'):
+        with torch.amp.autocast('cuda', enabled=self.fp16):
             forward_backward(model, sample)
 
         agg_logging_output["loss"] = agg_loss
@@ -643,7 +649,7 @@ class SpeechT5Task(LegacyFairseqTask):
 
             agg_loss, agg_sample_size, agg_logging_output = 0.0, 1.0, defaultdict(float)
             agg_logging_output['sample_size'] = 1
-            with torch.amp.autocast('cuda'):
+            with torch.amp.autocast('cuda', enabled=self.fp16):
                 loss, sample_size, logging_output = criterion(model, sample)
             # agg_loss += loss.data.item() if isinstance(loss, torch.Tensor) else loss
             agg_loss += loss.item() if isinstance(loss, torch.Tensor) else loss
@@ -677,6 +683,7 @@ class SpeechT5Task(LegacyFairseqTask):
         self.args.reduction_factor = args.reduction_factor
         model = super(SpeechT5Task, self).build_model(args)
         return torch.compile(model)
+        # return torch.compile(model, dynamic=True)
         # return model
 
     def build_generator(

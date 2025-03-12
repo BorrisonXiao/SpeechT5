@@ -29,9 +29,8 @@ def collate(
     if len(samples) == 0:
         return {}
     
-    # Cihan: Max length cropping has been done in the data preprocessing step
     def merge(key, left_pad, move_eos_to_beginning=False, pad_to_length=None):
-        return data_utils.collate_tokens(
+        res = data_utils.collate_tokens(
             [s[key] for s in samples],
             pad_idx,
             eos_idx=None,  # use eos_idx of each sample instead of vocab.eos()
@@ -39,6 +38,10 @@ def collate(
             move_eos_to_beginning=move_eos_to_beginning,
             pad_to_length=pad_to_length,
         )
+        # Cihan: Max length cropping has been done in the data preprocessing step, but here we do it again for the sake of safety.
+        if pad_to_length is not None:
+            res = res[:, :pad_to_length]
+        return res
 
     id = torch.LongTensor([s["id"] for s in samples])
     src_tokens = merge(

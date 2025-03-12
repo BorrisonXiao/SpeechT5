@@ -17,6 +17,7 @@ from fairseq import utils
 from fairseq.models import (
     FairseqEncoder,
 )
+from fairseq.distributed import fsdp_wrap
 from fairseq.modules import (
     FairseqDropout,
     LayerNorm,
@@ -27,8 +28,7 @@ from .transformer_layer import TransformerSentenceEncoderLayer
 from fairseq.modules.checkpoint_activations import checkpoint_wrapper
 
 
-
-DEFAULT_MIN_PARAMS_TO_WRAP = int(1e8)
+DEFAULT_MIN_PARAMS_TO_WRAP = int(1e5)
 
 def Linear(in_features, out_features, bias=True):
     m = nn.Linear(in_features, out_features, bias)
@@ -131,8 +131,25 @@ class TransformerEncoder(FairseqEncoder):
         else:
             layer = TransformerEncoderLayer(args)
             
-        if getattr(args, "gradient_checkpointing", False):
-            layer = checkpoint_wrapper(layer)
+        checkpoint = getattr(args, "gradient_checkpointing", False)
+        if checkpoint:
+            use_pytorch_checkpoint = args.ddp_backend == "pytorch_ddp"
+            offload_to_cpu = getattr(args, "cpu_offload", False)
+            # use_reentrant must be False to enable DDP with checkpointing
+            layer = checkpoint_wrapper(
+                layer,
+                use_pytorch_checkpoint=use_pytorch_checkpoint,
+                use_reentrant=False,
+                offload_to_cpu=offload_to_cpu,
+            )
+        # if we are checkpointing, enforce that FSDP always wraps the
+        # checkpointed layer, regardless of layer size
+        min_params_to_wrap = (
+            getattr(args, "min_params_to_wrap", DEFAULT_MIN_PARAMS_TO_WRAP)
+            if not checkpoint
+            else 0
+        )
+        # layer = fsdp_wrap(layer, min_num_params=min_params_to_wrap)
         return layer
 
     def forward(

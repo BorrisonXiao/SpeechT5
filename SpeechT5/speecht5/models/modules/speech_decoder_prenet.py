@@ -102,7 +102,9 @@ class SpeechDecoderPrenet(nn.Module):
             tensor([[[1, 1, 1, 1, 1],
                     [[1, 1, 1, 0, 0]]], dtype=torch.uint8)
         """
-        x_masks = make_non_pad_mask(ilens).to(next(self.parameters()).device)
+        # Cihan: Seems that ocassionally the parameters are empty in FSDP, data dtype is safer
+        device = ilens.device if isinstance(ilens, torch.Tensor) else torch.device('cpu')
+        x_masks = make_non_pad_mask(ilens).to(device)
         return x_masks.unsqueeze(-2)
     
     def set_num_updates(self, num_updates):

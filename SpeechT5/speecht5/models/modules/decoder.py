@@ -27,7 +27,7 @@ from torch import Tensor
 from .encoder import RelativePositionalEncoding
 from .transformer_layer import TransformerDecoderLayer
 
-DEFAULT_MIN_PARAMS_TO_WRAP = int(1e8)
+DEFAULT_MIN_PARAMS_TO_WRAP = int(1e5)
 
 
 class TransformerDecoder(FairseqIncrementalDecoder):
@@ -85,10 +85,17 @@ class TransformerDecoder(FairseqIncrementalDecoder):
 
     def build_decoder_layer(self, args, no_encoder_attn=False):
         layer = TransformerDecoderLayer(args, no_encoder_attn=no_encoder_attn, has_relative_attention_bias=args.relative_position_embedding)
-        checkpoint = getattr(args, "checkpoint_activations", False)
+        checkpoint = getattr(args, "gradient_checkpointing", False)
         if checkpoint:
-            offload_to_cpu = getattr(args, "offload_activations", False)
-            layer = checkpoint_wrapper(layer, offload_to_cpu=offload_to_cpu)
+            use_pytorch_checkpoint = args.ddp_backend == "pytorch_ddp"
+            offload_to_cpu = getattr(args, "cpu_offload", False)
+            # use_reentrant must be False to enable DDP with checkpointing
+            layer = checkpoint_wrapper(
+                layer,
+                use_pytorch_checkpoint=use_pytorch_checkpoint,
+                use_reentrant=False,
+                offload_to_cpu=offload_to_cpu,
+            )
         # if we are checkpointing, enforce that FSDP always wraps the
         # checkpointed layer, regardless of layer size
         min_params_to_wrap = (
