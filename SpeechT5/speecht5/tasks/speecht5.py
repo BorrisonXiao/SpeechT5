@@ -682,8 +682,9 @@ class SpeechT5Task(LegacyFairseqTask):
         args.sample_rate = self.args.sample_rate
         self.args.reduction_factor = args.reduction_factor
         model = super(SpeechT5Task, self).build_model(args)
-        return torch.compile(model)
-        # return torch.compile(model, dynamic=True)
+        torch.compiler.reset()
+        # return torch.compile(model)
+        return torch.compile(model, dynamic=True)
         # return model
 
     def build_generator(

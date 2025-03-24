@@ -30,7 +30,7 @@ train_sets="train-clean-100 train-clean-360 train-other-500"
 dev_sets="dev-clean dev-other"
 
 tsv_dir=${data_dir}/tsv
-feat_dir=${data_dir}/debug_hubert_features
+feat_dir=${data_dir}/hubert_features
 text_dir=${data_dir}/text
 
 nshard=1
