@@ -1,6 +1,3 @@
-[submodule "SpeechT5/fairseq"]
-	path = SpeechT5/fairseq
-	url = git@github.com:BorrisonXiao/fairseq.git
 [submodule "Speech2C/fairseq"]
 	path = Speech2C/fairseq
 	url = https://github.com/facebookresearch/fairseq.git
@@ -23,3 +20,6 @@
 [submodule "WavLLM/fairseq"]
 	path = WavLLM/fairseq
 	url = https://github.com/pytorch/fairseq.git
+[submodule "SpeechT5/fairseq"]
+	path = SpeechT5/fairseq
+	url = git@github.com:BorrisonXiao/fairseq.git
