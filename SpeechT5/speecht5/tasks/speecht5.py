@@ -617,10 +617,6 @@ class SpeechT5Task(LegacyFairseqTask):
             else:
                 loss *= weight
             loss = loss / sample_size
-            # @torch.compiler.disable(recursive=True)
-            # def backward(loss):
-            #     optimizer.backward(loss)
-            # backward(loss)
             optimizer.backward(loss)
             agg_loss += loss.detach().item()
             # TODO make summing of the sample sizes configurable
@@ -683,9 +679,11 @@ class SpeechT5Task(LegacyFairseqTask):
         self.args.reduction_factor = args.reduction_factor
         model = super(SpeechT5Task, self).build_model(args)
         torch.compiler.reset()
+        model = torch.compile(model)
+        print(torch._dynamo.utils.compile_times())
+        return model
         # return torch.compile(model)
-        return torch.compile(model, dynamic=True)
-        # return model
+        # return torch.compile(model, dynamic=True)
 
     def build_generator(
         self,

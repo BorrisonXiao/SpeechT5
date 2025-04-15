@@ -334,7 +334,13 @@ class SpeechEncoderPrenet(nn.Module):
                 min_space=self.mask_min_space,
             )
             mask_indices = torch.from_numpy(mask_indices).to(x.device)
-            x[mask_indices] = self.mask_emb
+            # x[mask_indices] = self.mask_emb
+            # Note (Cihan): Replace the in-place operation with torch.where
+            # to avoid in-place operation for torch.compile
+            # Expand mask to shape [B, T, C] for broadcasting
+            mask = mask_indices.unsqueeze(-1).expand(-1, -1, C)
+            # Use torch.where to avoid in-place operation
+            x = torch.where(mask, self.mask_emb.to(x.dtype), x)
         else:
             mask_indices = None
 

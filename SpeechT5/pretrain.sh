@@ -2,28 +2,28 @@
 #
 #SBATCH --job-name=pretrain
 #SBATCH --nodes=1
-#SBATCH --gpus=4
+#SBATCH --gpus=3
 #SBATCH --ntasks=1
-#SBATCH --partition=reserve_q
-#SBATCH -w d02
-#SBATCH --account=reserve
-#SBATCH --time=480:00:00
+#SBATCH --partition=a100
+#SBATCH --exclude=gpu10
+#SBATCH --account=lgarci27_gpu
+#SBATCH --time=24:00:00
 #SBATCH --output=logs/%j.out
 
-module purge
-module load conda
-module load cuda/12.4
-conda --version
+# Note that gpu10 may have nccl issues, so we exclude it
+
+module load cuda/12.5.0
 /bin/hostname
 nvidia-smi
 nvcc --version
 
 . ~/.bashrc
-conda activate /home/cxiao7/research/discrete/espnet_meili/tools/miniconda/envs/mult5
-export LD_LIBRARY_PATH=$HOME/research/discrete/espnet_meili/tools/miniconda/envs/mult5/lib/python3.9/site-packages/nvidia/nvjitlink/lib:$LD_LIBRARY_PATH
+conda activate $HOME/data_lgarci27/cxiao7/miniconda3/envs/mult5
+export LD_LIBRARY_PATH=$HOME/data_lgarci27/cxiao7/miniconda3/envs/mult5/lib/python3.9/site-packages/nvidia/nvjitlink/lib:$LD_LIBRARY_PATH
 export PYTHONPATH=$PYTHONPATH:$PWD/fairseq
 # Forces all CUDA operations to execute in order and completely finish before moving forward.
-export CUDA_LAUNCH_BLOCKING=1
+# export CUDA_LAUNCH_BLOCKING=1
+# Catch device-side assertions and errors
 export TORCH_USE_CUDA_DSA=1
 
 # Debug silent hangs
@@ -31,7 +31,7 @@ export NCCL_DEBUG=INFO
 export TORCH_DISTRIBUTED_DEBUG=DETAIL  # Provides granular communication debugging
 export NCCL_ASYNC_ERROR_HANDLING=1     # Ensures errors propagate immediately
 
-# Disable P2P to avoid hangs
+# Disable P2P to avoid hangs (doesn't always work though)
 export NCCL_P2P_DISABLE=1
 
 set -eou pipefail
@@ -54,8 +54,8 @@ lab_dir=${data_dir}/hubert_km_labels
 
 if [ $stage -le 1 ] && [ $stop_stage -ge 1 ]; then
     log "Stage 1: Run the pre-training script..."
-    JOBID=$(date +%Y%m%d%H%M%S)
-    # JOBID=debug
+    # JOBID=$(date +%Y%m%d%H%M%S)
+    JOBID=pretrain
     DATA_ROOT=${data_dir}/pretrain
     SAVE_DIR=${expdir}/pretrain/${JOBID}
     LABEL_DIR=${lab_dir}
@@ -70,7 +70,7 @@ if [ $stage -le 1 ] && [ $stop_stage -ge 1 ]; then
         --train-subset ${TRAIN_SET} \
         --valid-subset ${VALID_SET} \
         --hubert-label-dir ${LABEL_DIR} \
-        --distributed-world-size 4 \
+        --distributed-world-size 3 \
         --distributed-port 0 \
         --ddp-backend pytorch_ddp \
         --user-dir speecht5 \
@@ -96,7 +96,7 @@ if [ $stage -le 1 ] && [ $stop_stage -ge 1 ]; then
         --pad-audio \
         --pad-audio-with-max \
         --update-freq 2 \
-        --batch-ratio "[1,0.0086]" \
+        --batch-ratio "[1,0.003]" \
         \
         --criterion speecht5 \
         --optimizer adam \
@@ -120,13 +120,14 @@ if [ $stage -le 1 ] && [ $stop_stage -ge 1 ]; then
         \
         --arch t5_transformer_base \
         --encoder-speech-prenet mel \
-        --speech-prenet-encoder-layers 6 \
+        --encoder-layers 10 \
+        --speech-prenet-encoder-layers 10 \
         --share-input-output-embed \
         --find-unused-parameters \
         --bert-init \
         --relative-position-embedding \
         --use-codebook \
-        --codebook-prob 0.1 \
+        --codebook-prob 0.2 \
         --loss-weights="[10,0.1]" \
         --max-text-positions 999
 fi

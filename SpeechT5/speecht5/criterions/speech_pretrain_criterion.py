@@ -11,7 +11,6 @@ import math
 import re
 from dataclasses import dataclass, field
 from typing import List, Optional
-
 import torch
 import torch.nn.functional as F
 from fairseq import metrics, utils
@@ -229,6 +228,7 @@ class SpeechPretrainCriterion(FairseqCriterion):
                 metrics.log_scalar(lk, val / sample_size / math.log(2), round=3)
             elif lk.startswith("correct_"):
                 val = sum(log[lk] for log in logging_outputs)
+                breakpoint()
                 metrics.log_scalar(lk, val / counts[re.sub("correct", "count", lk)])
             elif lk == 'code_perplexity':
                 val = sum(log[lk] for log in logging_outputs)
