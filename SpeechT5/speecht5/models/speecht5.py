@@ -34,6 +34,7 @@ from fairseq.modules.transformer_sentence_encoder import init_bert_params
 from fairseq.models.transformer import Embedding
 from fairseq.modules import (
     GumbelVectorQuantizer,
+    PositionalEmbedding,
 )
 from torch import Tensor
 
@@ -71,6 +72,14 @@ class T5TransformerModel(FairseqEncoderDecoderModel):
         
         # Added modality vectors, 0 for text and 1 for speech
         self.modality_vectors = torch.nn.Embedding(2, args.encoder_embed_dim)
+        # Add the residual vector
+        self.residual_vector = torch.nn.Parameter(torch.randn(args.encoder_embed_dim))
+        # Here we set the padding index to be an impossible value since we want to apply
+        # positional encoding to paddings
+        self.encoder_embed_positions = PositionalEmbedding(
+            args.max_speech_positions, args.encoder_embed_dim, -1
+        )
+        self.encoder_seq_len = args.encoder_seq_len
 
         self.text_decoder_prenet = text_decoder_prenet
         self.speech_decoder_prenet = speech_decoder_prenet
@@ -111,7 +120,7 @@ class T5TransformerModel(FairseqEncoderDecoderModel):
 
         self.num_updates = 0
 
-        # # Follow BERT's random weight initialization (for BART)
+        # Follow BERT's random weight initialization (for BART)
         if args.bert_init:
             self.apply(init_bert_params)
         self.args = args
@@ -829,10 +838,12 @@ class T5TransformerModel(FairseqEncoderDecoderModel):
         if input_type == 'text':
             encoder_input, encoder_padding_mask = self.text_encoder_prenet(src_tokens)
             # Add the text modality vector to the encoder input
-            encoder_input = encoder_input + self.modality_vectors(torch.tensor(0, device=encoder_input.device))
+            # encoder_input = encoder_input + self.modality_vectors(torch.tensor(0, device=encoder_input.device))
         else:
             if target_list is not None:
                 encoder_input, encoder_padding_mask = self.speech_encoder_prenet(source, require_feat_pen=True, target_list=target_list, padding_mask=padding_mask, mask=mask)
+                # Note (Cihan): Due to bucketing, the samples retrieved are likely to have similar lenghts, meaning their diff is probably < hop_size
+                # and as a result the encoder_padding_mask is likely to be all zeros.
                 encoder_input, features_pen, mask_indices, target_list = encoder_input
             else:
                 encoder_input, encoder_padding_mask = self.speech_encoder_prenet(source, padding_mask=padding_mask, mask=self.training)
@@ -844,12 +855,42 @@ class T5TransformerModel(FairseqEncoderDecoderModel):
                 if getattr(self.args, "sid_encoder_cls", None) == "encoder":
                     prev_output_tokens = torch.zeros_like(prev_output_tokens)
                     encoder_input, encoder_padding_mask = self._integrate_with_speaker_cls(prev_output_tokens, encoder_input, encoder_padding_mask)
-            # Add the speech modality vector to the encoder input
-            encoder_input = encoder_input + self.modality_vectors(torch.tensor(1, device=encoder_input.device))
+
+            hubert_encoder_input = encoder_input
+            hubert_padding_mask = encoder_padding_mask.clone()
+
+        # Pad the features with a pad embedding and re-add the positional encoding
+        if self.encoder_seq_len is not None:
+            # First replace the padded tokens/features with the residual vector, that is everywhere the encoder_padding_mask is True
+            _mask = encoder_padding_mask.bool().unsqueeze(-1).expand_as(encoder_input)
+            encoder_input = torch.where(_mask, self.residual_vector, encoder_input)
+
+            # Concatenate the encoder input with residual vectors up to the encoder sequence length
+            diff = self.encoder_seq_len - encoder_input.size(1)
+            if diff > 0:
+                # Pad the encoder input with the residual vector
+                pad = self.residual_vector.unsqueeze(0).expand(encoder_input.size(0), diff, -1)
+                encoder_input = torch.cat([encoder_input, pad], dim=1)
+                # Pad the encoder padding mask with ones
+                pad_mask = torch.ones(encoder_padding_mask.size(0), diff, dtype=torch.bool, device=encoder_padding_mask.device)
+                encoder_padding_mask = torch.cat([encoder_padding_mask, pad_mask], dim=1)
+            elif diff < 0:
+                # Send out a warning if the encoder input is longer than the encoder sequence length
+                logger.warning(f"Encoder input is longer than the encoder sequence length. Truncating the encoder input to {self.encoder_seq_len}.")
+                # Truncate the encoder input to the encoder sequence length
+                encoder_input = encoder_input[:, :self.encoder_seq_len, :]
+                # Truncate the encoder padding mask to the encoder sequence length
+                encoder_padding_mask = encoder_padding_mask[:, :self.encoder_seq_len]
+
+        # Add the residual vector to the encoder input
+        positions = self.encoder_embed_positions(encoder_padding_mask)
+        encoder_input = encoder_input + self.encoder_embed_positions(encoder_padding_mask)
+
+        # Add the modality vector to the shared-encoder's input
+        encoder_input = encoder_input + self.modality_vectors(torch.tensor(input_type == 'speech', dtype=torch.long, device=encoder_input.device))
 
         # Encoder: T x B x C
         # Cihan: Here we explicitly set the encoder_padding_mask to all False
-        org_encoder_padding_mask = encoder_padding_mask.clone()
         encoder_padding_mask = torch.zeros_like(encoder_padding_mask, dtype=torch.bool)
         encoder_output = self.encoder(encoder_input, encoder_padding_mask, tgt_layer=tgt_enc_layer)
 
@@ -868,10 +909,10 @@ class T5TransformerModel(FairseqEncoderDecoderModel):
         # so we set the encoder_padding_mask to the original one
         if target_list is not None:
             hubert_results = self.hubert_layer(
-                encoder_output["encoder_in"][0], # B x T x C
-                org_encoder_padding_mask, 
+                hubert_encoder_input, # B x T x C
+                hubert_padding_mask,
                 mask_indices, 
-                target_list
+                target_list,
             )
 
             hubert_results['features_pen'] = features_pen

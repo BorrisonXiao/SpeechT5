@@ -39,6 +39,7 @@ from torch.profiler import profile, record_function, ProfilerActivity
 import torch._dynamo
 torch._dynamo.config.suppress_errors = True
 torch._dynamo.config.optimize_ddp = False
+torch._dynamo.config.cache_size_limit = 16  # Default is 8
 
 logger = logging.getLogger(__name__)
 
@@ -310,6 +311,12 @@ class SpeechT5Task(LegacyFairseqTask):
             help="if specified, the source tokens will be padded to this length. Theoretically, this should be same as max-speech-sample-size / hubert-downsample-ratio.",
         )
         parser.add_argument(
+            "--encoder-seq-len",
+            type=int,
+            default=None,
+            help="if specified, the pre-encoder representatiosn will be padded to this length. Theoretically, this should be same as max-speech-sample-size / hubert-downsample-ratio.",
+        )
+        parser.add_argument(
             "--pad-tgt-tokens-to-max-length",
             type=int,
             default=None,
@@ -477,7 +484,7 @@ class SpeechT5Task(LegacyFairseqTask):
                     pad_list=pad_list,
                     eos_list=eos_list,
                     label_processors=procs,
-                    max_keep_sample_size=None,
+                    max_keep_sample_size=320000,
                     min_keep_sample_size=32000,
                     max_sample_size=self.args.max_speech_sample_size,
                     pad_audio=self.args.pad_audio,
@@ -680,7 +687,6 @@ class SpeechT5Task(LegacyFairseqTask):
         model = super(SpeechT5Task, self).build_model(args)
         torch.compiler.reset()
         model = torch.compile(model)
-        print(torch._dynamo.utils.compile_times())
         return model
         # return torch.compile(model)
         # return torch.compile(model, dynamic=True)
