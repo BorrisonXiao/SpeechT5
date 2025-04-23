@@ -624,7 +624,9 @@ class SpeechT5Task(LegacyFairseqTask):
             else:
                 loss *= weight
             loss = loss / sample_size
+            maybe_empty_cache()
             optimizer.backward(loss)
+            maybe_empty_cache()
             agg_loss += loss.detach().item()
             # TODO make summing of the sample sizes configurable
             for k in logging_output:
@@ -685,8 +687,8 @@ class SpeechT5Task(LegacyFairseqTask):
         args.sample_rate = self.args.sample_rate
         self.args.reduction_factor = args.reduction_factor
         model = super(SpeechT5Task, self).build_model(args)
-        torch.compiler.reset()
-        model = torch.compile(model)
+        # torch.compiler.reset()
+        # model = torch.compile(model)
         return model
         # return torch.compile(model)
         # return torch.compile(model, dynamic=True)
@@ -793,3 +795,13 @@ class SpeechT5Task(LegacyFairseqTask):
             self.max_pos
         )
         return indices
+
+def maybe_empty_cache(limit_mib=30720, verbose=False):
+    reserved_bytes = torch.cuda.memory_reserved()
+    reserved_mib = reserved_bytes / (1024 ** 2)
+    
+    if reserved_mib > limit_mib:
+        if verbose:
+            print(f"[Reserved] {reserved_mib} MiB exceeds limit ({limit_mib} MiB). Calling torch.cuda.empty_cache()...")
+            # print(f"[Action] Exceeds limit ({limit_mib} MiB). Calling torch.cuda.empty_cache()...")
+        torch.cuda.empty_cache()

@@ -2,10 +2,11 @@
 #
 #SBATCH --job-name=pretrain
 #SBATCH --nodes=1
-#SBATCH --gpus=4
+#SBATCH --gpus=3
 #SBATCH --ntasks=1
+#SBATCH --cpus-per-task=8
 #SBATCH --partition=a100
-#SBATCH --account=lgarci27_gpu
+#SBATCH --account=skhudan1_gpu
 #SBATCH --time=24:00:00
 #SBATCH --output=logs/%j.out
 
@@ -19,7 +20,7 @@ conda activate $HOME/data_lgarci27/cxiao7/miniconda3/envs/mult5
 export LD_LIBRARY_PATH=$HOME/data_lgarci27/cxiao7/miniconda3/envs/mult5/lib/python3.9/site-packages/nvidia/nvjitlink/lib:$LD_LIBRARY_PATH
 export PYTHONPATH=$PYTHONPATH:$PWD/fairseq
 # Forces all CUDA operations to execute in order and completely finish before moving forward.
-export CUDA_LAUNCH_BLOCKING=1
+# export CUDA_LAUNCH_BLOCKING=1
 # Catch device-side assertions and errors
 export TORCH_USE_CUDA_DSA=1
 
@@ -29,12 +30,24 @@ export NCCL_DEBUG_FILE=nccl_debug.log  # Log file for NCCL debug output
 export TORCH_DISTRIBUTED_DEBUG=DETAIL  # Provides granular communication debugging
 export NCCL_ASYNC_ERROR_HANDLING=1     # Ensures errors propagate immediately
 
+# To avoid fragmentation issues, turns out doesn't help
+# export PYTORCH_CUDA_ALLOC_CONF=max_split_size_mb:128
+
+# To avoid fragmentation issues based on the advice of the PyTorch team
+PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+
+# Disabling CUDA caching for debugging, in fact this seems to reduce the memory overhead significantly but 
+# at the cost of speed (which turns out to be significant as well)
+# export PYTORCH_NO_CUDA_MEMORY_CACHING=1
+
+export PYTORCH_CUDA_ALLOC_CONF=garbage_collection_threshold:0.8
+
 # The following two seem to help with hangs
-export NCCL_IB_DISABLE=1  # Disable InfiniBand if not used
-export NCCL_SOCKET_IFNAME=eth0  # Use the correct network interface
+# export NCCL_IB_DISABLE=1  # Disable InfiniBand if not used
+# export NCCL_SOCKET_IFNAME=eth0  # Use the correct network interface
 
 # Disable P2P to avoid hangs (doesn't quite work though)
-export NCCL_P2P_DISABLE=1
+# export NCCL_P2P_DISABLE=1
 
 # export CUDA_VISIBLE_DEVICES=0,1
 
@@ -74,7 +87,7 @@ if [ $stage -le 1 ] && [ $stop_stage -ge 1 ]; then
         --train-subset ${TRAIN_SET} \
         --valid-subset ${VALID_SET} \
         --hubert-label-dir ${LABEL_DIR} \
-        --distributed-world-size 4 \
+        --distributed-world-size 3 \
         --distributed-port 0 \
         --ddp-backend pytorch_ddp \
         --user-dir speecht5 \
@@ -132,8 +145,29 @@ if [ $stage -le 1 ] && [ $stop_stage -ge 1 ]; then
         --use-codebook \
         --codebook-prob 0.2 \
         --loss-weights="[10,0.1]" \
-        --max-text-positions 999
+        --max-text-positions 999 \
+        --clear-cache-threshold 30720 \
+        --profile
 fi
 
         # --pad-audio-with-max \
 # --no-reshard-after-forward \
+
+# print(torch.cuda.memory_summary())
+
+# import gc
+# import torch
+
+# total_mem = 0.0
+# for obj in gc.get_objects():
+#     try:
+#         # if torch.is_tensor(obj) and obj.is_cuda and obj.numel() > 10000000:
+#         # if torch.is_tensor(obj) and obj.is_cuda and obj.numel() > 10000:
+#         if torch.is_tensor(obj) and obj.is_cuda:
+#             size_mb = obj.numel() * obj.element_size() / 1e6
+#             total_mem += size_mb
+#             print(f"Large Tensor: {obj.shape}, dtype={obj.dtype}, size={size_mb:.2f} MB, requires_grad: {obj.requires_grad if hasattr(obj, 'requires_grad') else 'N/A'}")
+#     except:
+#         pass
+
+# print(f"Total memory of large tensors: {total_mem:.2f} MB")

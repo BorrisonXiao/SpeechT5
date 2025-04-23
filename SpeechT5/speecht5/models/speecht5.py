@@ -43,6 +43,7 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_MAX_TEXT_POSITIONS = 450
 DEFAULT_MAX_SPEECH_POSITIONS = 4000
+CLEAR_CACHE_VERBOSE = False
 
 
 @register_model("t5_transformer")
@@ -80,6 +81,9 @@ class T5TransformerModel(FairseqEncoderDecoderModel):
             args.max_speech_positions, args.encoder_embed_dim, -1
         )
         self.encoder_seq_len = args.encoder_seq_len
+        
+        self.clear_cache_threshold = args.clear_cache_threshold
+        self.clear_cache_verbose = CLEAR_CACHE_VERBOSE
 
         self.text_decoder_prenet = text_decoder_prenet
         self.speech_decoder_prenet = speech_decoder_prenet
@@ -637,6 +641,13 @@ class T5TransformerModel(FairseqEncoderDecoderModel):
             default=-1,
             help="which layer's output is used as the input of decoder",
         )
+        parser.add_argument(
+            "--clear-cache-threshold",
+            type=int,
+            default=30720,
+            help="threshold for clearing cache, i.e. torch.cuda.empty_cache() will be called if "
+            "the number of parameters in the model is larger than this value (in MiB)",
+        )
 
     # Encoder, Decoder
     @classmethod
@@ -916,6 +927,19 @@ class T5TransformerModel(FairseqEncoderDecoderModel):
             )
 
             hubert_results['features_pen'] = features_pen
+        
+        maybe_empty_cache(limit_mib=self.clear_cache_threshold, verbose=self.clear_cache_verbose)
+
+        # Use dummy outputs for debugging
+        # if target_list is not None:
+        #     total_masks = mask_indices.sum()
+        #     total_toks = hubert_encoder_input.shape[0] * hubert_encoder_input.shape[1] - hubert_padding_mask.sum()
+        #     hubert_results = {
+        #         "padding_mask": encoder_padding_mask,
+        #         "features_pen": features_pen,
+        #         "logit_m_list": [torch.zeros((total_masks, 505), device=hubert_encoder_input.device)],
+        #         "logit_u_list": [torch.zeros((total_toks - total_masks, 505), device=hubert_encoder_input.device)],
+        #     }
 
         if "decoder_input" in encoder_output and encoder_output["decoder_input"][0] is not None:
             # Change the encoder output to decoder input once set unb-enc-layer
@@ -983,10 +1007,13 @@ class T5TransformerModel(FairseqEncoderDecoderModel):
         if task_name is not None and task_name == "s2s" and getattr(self.args, "se_decoder_input", "previous_target") == "source":
             prev_output_tokens, tgt_mask = self.speech_decoder_prenet(src_tokens, src_lengths)
 
+        maybe_empty_cache(limit_mib=self.clear_cache_threshold, verbose=self.clear_cache_verbose)
         # Decoder
         decoder_output, extra = self.decoder(prev_output_tokens, tgt_mask, encoder_output, 
                                              full_context_alignment=getattr(self.args, "decoder_full_context_alignment", False), 
                                              alignment_layer=(-1 if target_list is None and output_type == 'speech' else None))
+        maybe_empty_cache(limit_mib=self.clear_cache_threshold, verbose=self.clear_cache_verbose)
+        
         # Decoder Postnet
         if task_name is not None and task_name == 's2c':
             if not getattr(self.args, "sid_t5_postnet", False):
@@ -1511,3 +1538,13 @@ def t5_transformer_base_asr(args):
     args.mask_channel_selection = getattr(args, "mask_channel_selection", "static")
     args.max_text_positions = getattr(args, "max_text_positions", 600)
     base_architecture(args)
+
+def maybe_empty_cache(limit_mib=30720, verbose=False):  # 30 GiB default
+    reserved_bytes = torch.cuda.memory_reserved()
+    reserved_mib = reserved_bytes / (1024 ** 2)
+    
+    if reserved_mib > limit_mib:
+        if verbose:
+            print(f"[Reserved] {reserved_mib} MiB exceeds limit ({limit_mib} MiB). Calling torch.cuda.empty_cache()...")
+            # print(f"[Action] Exceeds limit ({limit_mib} MiB). Calling torch.cuda.empty_cache()...")
+        torch.cuda.empty_cache()

@@ -53,19 +53,67 @@ class SpeechEncoderPostnet(nn.Module):
         else:
             self.final_proj = nn.Linear(args.encoder_embed_dim, final_dim)
 
-    def compute_nce(self, x, pos, negs):
-        neg_is_pos = (pos == negs).all(-1)
-        pos = pos.unsqueeze(0)
-        targets = torch.cat([pos, negs], dim=0)
+    # def compute_nce(self, x, pos, negs):
+    #     neg_is_pos = (pos == negs).all(-1)
+    #     pos = pos.unsqueeze(0)
+    #     targets = torch.cat([pos, negs], dim=0)
+    #     logits = torch.cosine_similarity(
+    #         x, targets.type_as(x), dim=-1
+    #     )
+    #     logits /= self.logit_temp
+    #     if neg_is_pos.any():
+    #         logits[1:][neg_is_pos] = float("-inf")
+    #     logits = logits.transpose(0, 1)  # (num_x, num_cls+1)
 
-        logits = torch.cosine_similarity(
-            x.float(), targets.float(), dim=-1
-        ).type_as(x)
-        logits /= self.logit_temp
-        if neg_is_pos.any():
-            logits[1:][neg_is_pos] = float("-inf")
-        logits = logits.transpose(0, 1)  # (num_x, num_cls+1)
-        return logits
+    #     return logits
+    
+    def compute_nce(self, x, pos, negs, chunk_size=512):
+        """
+        Process instances in chunks to reduce memory fragmentation.
+        Args:
+            x:      (num_x, embed_dim)         # Input embeddings
+            pos:    (num_x, embed_dim)      # Positive targets
+            negs:   (num_cls, num_x, embed_dim) # Negative targets
+            chunk_size: Fixed chunk size for `num_x` dimension.
+        Returns:
+            logits: (num_x, num_cls + 1)       # NCE logits
+        """
+        num_x, embed_dim = x.shape
+        num_cls = negs.shape[0]
+        logits = []
+
+        pos = pos.unsqueeze(0)  # (1, num_x, embed_dim)
+
+        # Process chunks of instances to limit temporary memory
+        for i in range(0, num_x, chunk_size):
+            # Slice current chunk of instances
+            x_chunk = x[i:i+chunk_size]  # (chunk_size, embed_dim)
+            pos_chunk = pos[:, i:i+chunk_size]  # (1, chunk_size, embed_dim)
+            negs_chunk = negs[:, i:i+chunk_size]  # (num_cls, chunk_size, embed_dim)
+
+            # Concatenate pos + negs for the chunk
+            targets_chunk = torch.cat([pos_chunk, negs_chunk], dim=0)  # (num_cls+1, chunk_size, embed_dim)
+
+            # Compute cosine similarity between x_chunk and targets_chunk
+            logits_chunk = torch.cosine_similarity(
+                x_chunk.unsqueeze(0),  # (1, chunk_size, embed_dim)
+                targets_chunk.type_as(x_chunk),  # (num_cls+1, chunk_size, embed_dim)
+                dim=-1
+            )  # (num_cls+1, chunk_size)
+
+            logits_chunk /= self.logit_temp
+
+            # Mask where negatives == positive for this chunk
+            neg_is_pos_chunk = (pos_chunk == negs_chunk).all(-1)  # (num_cls, chunk_size)
+            if neg_is_pos_chunk.any():
+                logits_chunk[1:][neg_is_pos_chunk] = float("-inf")
+
+            # Transpose to (chunk_size, num_cls + 1)
+            logits.append(logits_chunk.transpose(0, 1))
+            maybe_empty_cache()
+
+        # Combine all chunks (final shape: num_x, num_cls + 1)
+        return torch.cat(logits, dim=0)
 
     def forward(self, x, padding_mask, mask_indices, target_list, pad: int = -100):
         def compute_pred(proj_x, target, label_embs):
@@ -84,7 +132,6 @@ class SpeechEncoderPostnet(nn.Module):
             # y: (S, D)
             # negs: (Neg, S, D)
             return self.compute_nce(proj_x, y, negs)
-
 
         label_embs_list = self.label_embs_concat.split(self.num_classes, 0)
         if not self.skip_masked:
@@ -128,3 +175,13 @@ class SpeechEncoderPostnet(nn.Module):
         }
 
         return result
+
+def maybe_empty_cache(limit_mib=36000, verbose=False):
+    reserved_bytes = torch.cuda.memory_reserved()
+    reserved_mib = reserved_bytes / (1024 ** 2)
+    
+    if reserved_mib > limit_mib:
+        if verbose:
+            print(f"[Reserved] {reserved_mib} MiB exceeds limit ({limit_mib} MiB). Calling torch.cuda.empty_cache()...")
+            # print(f"[Action] Exceeds limit ({limit_mib} MiB). Calling torch.cuda.empty_cache()...")
+        torch.cuda.empty_cache()
