@@ -23,8 +23,8 @@ train_spm=true
 dict_path=
 max_token_len=1249
 
-stage=4
-stop_stage=6
+stage=7
+stop_stage=7
 
 train_sets="train-clean-100 train-clean-360 train-other-500"
 dev_sets="dev-clean dev-other"
@@ -196,7 +196,14 @@ if [ $stage -le 5 ] && [ $stop_stage -ge 5 ]; then
 fi
 
 if [ $stage -le 6 ] && [ $stop_stage -ge 6 ]; then
-    log "Stage 6: Finalize the pretrain data folder..."
+    log "Stage 6: Prepare the ASR data for fine-tuning..."
+    python fairseq/examples/wav2vec/libri_labels.py $tsv_dir/speech_train.tsv --output-dir $tsv_dir --output-name speech_train
+
+    python fairseq/examples/wav2vec/libri_labels.py $tsv_dir/speech_valid.tsv --output-dir $tsv_dir --output-name speech_valid
+fi
+
+if [ $stage -le 7 ] && [ $stop_stage -ge 7 ]; then
+    log "Stage 7: Finalize the pretrain data folder..."
 
     pretrain_data_dir=${data_dir}/pretrain
     mkdir -p ${pretrain_data_dir}
@@ -206,4 +213,6 @@ if [ $stage -le 6 ] && [ $stop_stage -ge 6 ]; then
     ln -sfv ${PWD}/${text_dir}/bins/text_valid.* ${PWD}/${pretrain_data_dir}
     ln -sfv ${PWD}/${tsv_dir}/speech_valid_spk.tsv ${PWD}/${pretrain_data_dir}/speech_valid.tsv
     ln -sfv ${PWD}/${tsv_dir}/speech_train_spk.tsv ${PWD}/${pretrain_data_dir}/speech_train.tsv
+    ln -sfv ${PWD}/${lab_dir}/speech_valid.wrd ${PWD}/${pretrain_data_dir}/speech_valid.wrd
+    ln -sfv ${PWD}/${lab_dir}/speech_train.wrd ${PWD}/${pretrain_data_dir}/speech_train.wrd
 fi
