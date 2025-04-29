@@ -158,6 +158,8 @@ class TransformerEncoder(FairseqEncoder):
         encoder_padding_mask,
         return_all_hiddens: bool = False,
         tgt_layer=None,
+        extra_encoder_in=None,
+        extra_encoder_padding_mask=None,
     ):
         """
         Args:
@@ -167,8 +169,9 @@ class TransformerEncoder(FairseqEncoder):
                 shape `(batch)`
             return_all_hiddens (bool, optional): also return all of the
                 intermediate hidden states (default: False).
-            token_embeddings (torch.Tensor, optional): precomputed embeddings
-                default `None` will recompute embeddings
+            extra_encoder_in (torch.Tensor, optional): the unpadded encoder_in
+                features of shape `(batch, src_len, embed_dim)`. This is used for
+                the CTC loss. If not provided, the encoder_in features are used.
 
         Returns:
             dict:
@@ -193,11 +196,13 @@ class TransformerEncoder(FairseqEncoder):
 
         # CTC and bert
         if self.proj:
-            x_for_ctc = self.proj(self.dropout_module(encoder_out["encoder_out"][0]))
+            x_for_ctc = self.proj(self.dropout_module(encoder_out["encoder_out"][0])) if extra_encoder_in is None else self.proj(self.dropout_module(extra_encoder_in.transpose(0, 1)))
         else:
             x_for_ctc = None
 
         encoder_out["encoder_out_for_ctc"] = [x_for_ctc] # T x B x C
+        if extra_encoder_padding_mask is not None:
+            encoder_out["extra_encoder_padding_mask"] = [extra_encoder_padding_mask]
 
         return encoder_out
 

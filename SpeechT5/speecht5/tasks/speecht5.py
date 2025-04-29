@@ -796,7 +796,7 @@ class SpeechT5Task(LegacyFairseqTask):
         )
         return indices
 
-def maybe_empty_cache(limit_mib=30720, verbose=False):
+def maybe_empty_cache(limit_mib=71680, verbose=False):
     reserved_bytes = torch.cuda.memory_reserved()
     reserved_mib = reserved_bytes / (1024 ** 2)
     

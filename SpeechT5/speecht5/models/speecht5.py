@@ -856,6 +856,7 @@ class T5TransformerModel(FairseqEncoderDecoderModel):
                 # Note (Cihan): Due to bucketing, the samples retrieved are likely to have similar lenghts, meaning their diff is probably < hop_size
                 # and as a result the encoder_padding_mask is likely to be all zeros.
                 encoder_input, features_pen, mask_indices, target_list = encoder_input
+                
             else:
                 encoder_input, encoder_padding_mask = self.speech_encoder_prenet(source, padding_mask=padding_mask, mask=self.training)
                 # shuffle a batch of inputs of encoder
@@ -866,7 +867,6 @@ class T5TransformerModel(FairseqEncoderDecoderModel):
                 if getattr(self.args, "sid_encoder_cls", None) == "encoder":
                     prev_output_tokens = torch.zeros_like(prev_output_tokens)
                     encoder_input, encoder_padding_mask = self._integrate_with_speaker_cls(prev_output_tokens, encoder_input, encoder_padding_mask)
-
             hubert_encoder_input = encoder_input
             hubert_padding_mask = encoder_padding_mask.clone()
 
@@ -903,7 +903,12 @@ class T5TransformerModel(FairseqEncoderDecoderModel):
         # Encoder: T x B x C
         # Cihan: Here we explicitly set the encoder_padding_mask to all False
         encoder_padding_mask = torch.zeros_like(encoder_padding_mask, dtype=torch.bool)
-        encoder_output = self.encoder(encoder_input, encoder_padding_mask, tgt_layer=tgt_enc_layer)
+        encoder_output = self.encoder(
+            encoder_input, encoder_padding_mask,
+            tgt_layer=tgt_enc_layer,
+            extra_encoder_in=hubert_encoder_input if input_type == 'speech' else None,
+            extra_encoder_padding_mask=hubert_padding_mask if input_type == 'speech' else None,
+        )
 
         if task_name is not None and task_name == 'speech_pretrain' and feature_only:
             return encoder_output["encoder_out"][0].transpose(0, 1)
@@ -1539,7 +1544,7 @@ def t5_transformer_base_asr(args):
     args.max_text_positions = getattr(args, "max_text_positions", 600)
     base_architecture(args)
 
-def maybe_empty_cache(limit_mib=30720, verbose=False):  # 30 GiB default
+def maybe_empty_cache(limit_mib=71680, verbose=False):  # 30 GiB default
     reserved_bytes = torch.cuda.memory_reserved()
     reserved_mib = reserved_bytes / (1024 ** 2)
     

@@ -130,6 +130,8 @@ class SpeechtoTextLoss(FairseqCriterion):
             else 0
         )
         #print ("self.blank_idx: ", self.blank_idx)
+        
+        # TODO (Cihan): Identify special tokens if exist
 
         self.pad_idx = task.target_dictionary.pad()
         self.eos_idx = task.target_dictionary.eos()
@@ -303,7 +305,11 @@ class SpeechtoTextLoss(FairseqCriterion):
             net_output, log_probs=True
         ).contiguous()  # (T, B, C) from the encoder
 
-        if net_output["encoder_padding_mask"] is not None:
+        if net_output["extra_encoder_padding_mask"] is not None:
+            # Prioritize the extra encoder padding mask if it exists
+            non_padding_mask = ~net_output["extra_encoder_padding_mask"][0]
+            input_lengths = non_padding_mask.long().sum(-1)
+        elif net_output["encoder_padding_mask"] is not None:
             non_padding_mask = ~net_output["encoder_padding_mask"][0]
             input_lengths = non_padding_mask.long().sum(-1)
         else:

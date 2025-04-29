@@ -224,7 +224,7 @@ class SpeechEncoderPrenet(nn.Module):
         x = x.transpose(1, 2) # [batch, length, hidden_size]
         x = self.layer_norm(x)
         encoder_padding_mask = self.forward_padding_mask(x, encoder_padding_mask)
-        if (target_list[0][~encoder_padding_mask] <= 0).any():
+        if target_list is not None and (target_list[0][~encoder_padding_mask] <= 0).any():
             # Cihan: Fix the masks so that -100 pads in the target list are not considered
             encoder_padding_mask = torch.logical_or(encoder_padding_mask, target_list[0] <= 0)
         if self.post_extract_proj is not None:
