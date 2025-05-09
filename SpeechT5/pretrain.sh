@@ -140,8 +140,8 @@ if [ $stage -le 1 ] && [ $stop_stage -ge 1 ]; then
         \
         --arch t5_transformer_base \
         --encoder-speech-prenet mel \
-        --encoder-layers 8 \
-        --speech-prenet-encoder-layers 10 \
+        --encoder-layers 12 \
+        --speech-prenet-encoder-layers 12 \
         --share-input-output-embed \
         --find-unused-parameters \
         --bert-init \

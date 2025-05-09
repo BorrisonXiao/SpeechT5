@@ -67,7 +67,8 @@ log() {
 data_dir=data
 expdir=exp
 spm_model=models/self_trained/spm_bpe_3000.model.model
-pretrain_model=exp/pretrain/mel_v1/checkpoint_2_33000.pt
+# pretrain_model=exp/pretrain/mel_v1/checkpoint_5_73000.pt
+pretrain_model=exp/pretrain/mel_v1/checkpoint_last.pt
 
 stage=1
 stop_stage=1
@@ -102,8 +103,9 @@ if [ $stage -le 1 ] && [ $stop_stage -ge 1 ]; then
         --log-format simple \
         --seed 1337 \
         --fp16 \
-        --fp16-scale-tolerance=0.25 \
-        --fp16-init-scale 64 \
+        --fp16-scale-tolerance=0.2 \
+        --fp16-init-scale 32 \
+        --gradient-checkpointing \
         \
         --task speecht5 \
         --t5-task s2t \
@@ -114,7 +116,7 @@ if [ $stage -le 1 ] && [ $stop_stage -ge 1 ]; then
         --max-speech-sample-size 320000 \
         --min-speech-sample-size 16000 \
         --mel-hop-scale 2 \
-        --batch-size 25 \
+        --batch-size 20 \
         --batch-size-valid 64 \
         --update-freq 1 \
         --bpe-tokenizer ${spm_model} \
@@ -122,8 +124,8 @@ if [ $stage -le 1 ] && [ $stop_stage -ge 1 ]; then
         --criterion speecht5 \
         --report-accuracy \
         --zero-infinity \
-        --ce-weight 0.8 \
-        --ctc-weight 0.2 \
+        --ce-weight 0.5 \
+        --ctc-weight 0.5 \
         --sentence-avg \
         \
         --optimizer adam \
@@ -131,15 +133,15 @@ if [ $stage -le 1 ] && [ $stop_stage -ge 1 ]; then
         --adam-eps 1e-08 \
         --weight-decay 0.1 \
         --clip-norm 25.0 \
-        --lr 0.0002 \
+        --lr 0.0001 \
         --lr-scheduler tri_stage \
-        --phase-ratio "[0.1, 0.4, 0.5]" \
+        --phase-ratio "[0.1, 0.3, 0.6]" \
         --final-lr-scale 0.05 \
         \
         --max-update 80000 \
         --max-text-positions 999 \
         --required-batch-size-multiple 1 \
-        --save-interval-updates 1000 \
+        --save-interval-updates 2000 \
         --log-interval 20 \
         --skip-invalid-size-inputs-valid-test \
         \
@@ -151,7 +153,7 @@ if [ $stage -le 1 ] && [ $stop_stage -ge 1 ]; then
         --find-unused-parameters \
         --bert-init \
         --relative-position-embedding \
-        --freeze-encoder-updates 13000 \
+        --freeze-encoder-updates 100 \
         \
         --keep-last-epochs 4 \
         --feature-grad-mult 1.0 \

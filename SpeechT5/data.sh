@@ -28,6 +28,7 @@ stop_stage=8
 
 train_sets="train-clean-100 train-clean-360 train-other-500"
 dev_sets="dev-clean dev-other"
+test_sets="test-clean test-other"
 
 tsv_dir=${data_dir}/tsv
 feat_dir=${data_dir}/hubert_features
@@ -43,6 +44,7 @@ if [ $stage -le 0 ] && [ $stop_stage -ge 0 ]; then
     mkdir -p ${feat_dir}
     mkdir -p ${tsv_dir}/raw/valid
     mkdir -p ${tsv_dir}/raw/train
+    mkdir -p ${tsv_dir}/raw/test
 
     # set -x
     # # Process the valid set
@@ -54,6 +56,19 @@ if [ $stage -le 0 ] && [ $stop_stage -ge 0 ]; then
     # python fairseq/examples/wav2vec/wav2vec_manifest.py ${tsv_dir}/raw/valid --dest ${tsv_dir}/valid --ext flac --valid-percent 0
     # # Rename the file for training
     # cp ${tsv_dir}/valid/train.tsv ${tsv_dir}/speech_valid.tsv
+
+    set -x
+    # Process the test set
+    for split in ${test_sets}; do
+        # Create a proxy directory for the split
+        ln -sfv ${org_data_dir}/${split} ${tsv_dir}/raw/test
+        # python fairseq/examples/wav2vec/wav2vec_manifest.py ${tsv_dir}/raw/test --dest ${tsv_dir}/valid --ext flac --valid-percent 0
+        python fairseq/examples/wav2vec/wav2vec_manifest.py ${tsv_dir}/raw/test/${split} --dest ${tsv_dir}/test/${split} --ext flac --valid-percent 0
+        # Rename the file
+        # cp ${tsv_dir}/valid/train.tsv ${tsv_dir}/speech_valid.tsv
+        cp ${tsv_dir}/test/${split}/train.tsv ${tsv_dir}/${split}.tsv
+    done
+    ln -sfv ${xvector_dir} ${tsv_dir}/raw/test
 
     # # Process the training set
     # for split in ${train_sets}; do
@@ -67,16 +82,16 @@ if [ $stage -le 0 ] && [ $stop_stage -ge 0 ]; then
 
     # Add speaker embedding to the last column
     # for split in "speech_train" "speech_valid"; do
-    for split in "speech_train"; do
-        # python scripts/integrate_spkembs.py \
-        #     -i ${tsv_dir}/${split}.tsv \
-        #     --dset librispeech \
-        #     --xvectors ${data_dir}/xvectors.zip \
-        #     -o ${tsv_dir}/${split}_spk.tsv
+    # for split in "speech_train"; do
+    #     python scripts/integrate_spkembs.py \
+    #         -i ${tsv_dir}/${split}.tsv \
+    #         --dset librispeech \
+    #         --xvectors ${data_dir}/xvectors.zip \
+    #         -o ${tsv_dir}/${split}_spk.tsv
 
-        # Generate the hubert features
-        python fairseq/examples/hubert/simple_kmeans/dump_hubert_feature.py ${tsv_dir} ${split} ${ckpt_path} ${layer} ${nshard} ${rank} ${feat_dir}
-    done
+    #     # Generate the hubert features
+    #     python fairseq/examples/hubert/simple_kmeans/dump_hubert_feature.py ${tsv_dir} ${split} ${ckpt_path} ${layer} ${nshard} ${rank} ${feat_dir}
+    # done
 fi
 
 if [ $stage -le 1 ] && [ $stop_stage -ge 1 ]; then
@@ -197,7 +212,9 @@ fi
 
 if [ $stage -le 6 ] && [ $stop_stage -ge 6 ]; then
     log "Stage 6: Prepare the ASR data for fine-tuning..."
-    for split in "speech_train" "speech_valid"; do
+    for split in "speech_train"; do
+    # for split in "speech_valid"; do
+    # for split in ${test_sets}; do
         # Generate the word-level labels
         python fairseq/examples/wav2vec/libri_labels.py ${tsv_dir}/${split}.tsv --output-dir ${tsv_dir} --output-name ${split}
         # Lowercase the labels due to the pre-trained tokenizer
@@ -234,4 +251,8 @@ if [ $stage -le 8 ] && [ $stop_stage -ge 8 ]; then
     ln -sfv ${PWD}/${tsv_dir}/speech_train_spk.tsv ${PWD}/${asr_data_dir}/speech_train.tsv
     ln -sfv ${PWD}/${tsv_dir}/speech_valid.lc.wrd ${PWD}/${asr_data_dir}/speech_valid.txt
     ln -sfv ${PWD}/${tsv_dir}/speech_train.lc.wrd ${PWD}/${asr_data_dir}/speech_train.txt
+    for split in ${test_sets}; do
+        ln -sfv ${PWD}/${tsv_dir}/${split}.lc.wrd ${PWD}/${asr_data_dir}/${split}.txt
+        ln -sfv ${PWD}/${tsv_dir}/${split}.tsv ${PWD}/${asr_data_dir}/${split}.tsv
+    done
 fi

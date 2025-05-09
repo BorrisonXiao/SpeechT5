@@ -240,7 +240,7 @@ class TransformerEncoder(FairseqEncoder):
                   hidden states of shape `(src_len, batch, embed_dim)`.
                   Only populated if *return_all_hiddens* is True.
         """
-        _encoder_in = encoder_in.clone()
+        _encoder_in = encoder_in
         if self.no_freeze_encoder_layer is not None:
             ft = self.freeze_encoder_updates <= self.num_updates
         else:

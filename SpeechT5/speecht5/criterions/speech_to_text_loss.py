@@ -191,7 +191,7 @@ class SpeechtoTextLoss(FairseqCriterion):
             sample["only_ctc"] = True
 
         net_output_decoder, net_output = model(**sample["net_input"])
-        
+
         if self.ce_weight > 0:
             loss_ce, nll_loss_ce = self.compute_loss(model, net_output_decoder, sample, reduce=reduce)
             #print ("loss_ce: ", loss_ce)
@@ -336,6 +336,7 @@ class SpeechtoTextLoss(FairseqCriterion):
                 input_lengths,
                 target_lengths,
                 blank=self.blank_idx,
+                # reduction="mean",
                 reduction="sum",
                 zero_infinity=self.zero_infinity,
             )

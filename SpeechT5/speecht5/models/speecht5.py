@@ -818,6 +818,48 @@ class T5TransformerModel(FairseqEncoderDecoderModel):
             names.append("prob_perplexity")
 
         return extra_losses, names
+    
+    def forward_residual(self, encoder_input, encoder_padding_mask, input_type='speech'):
+        """
+        Adds the residual vectors to the encoder input.
+        Args:
+            encoder_input: The original encoder output.
+            encoder_padding_mask: The original encoder padding mask.
+        """
+        # Pad the features with a pad embedding and re-add the positional encoding
+        # First replace the padded tokens/features with the residual vector, that is everywhere the encoder_padding_mask is True
+        _mask = encoder_padding_mask.bool().unsqueeze(-1).expand_as(encoder_input)
+        encoder_input = torch.where(_mask, self.residual_vector, encoder_input)
+
+        # Concatenate the encoder input with residual vectors up to the encoder sequence length
+        diff = self.encoder_seq_len - encoder_input.size(1)
+        if diff > 0:
+            # Pad the encoder input with the residual vector
+            pad = self.residual_vector.unsqueeze(0).expand(encoder_input.size(0), diff, -1)
+            encoder_input = torch.cat([encoder_input, pad], dim=1)
+            # Pad the encoder padding mask with ones
+            pad_mask = torch.ones(encoder_padding_mask.size(0), diff, dtype=torch.bool, device=encoder_padding_mask.device)
+            encoder_padding_mask = torch.cat([encoder_padding_mask, pad_mask], dim=1)
+        elif diff < 0:
+            # Send out a warning if the encoder input is longer than the encoder sequence length
+            logger.warning(f"Encoder input {encoder_input.size(1)} is longer than the encoder sequence length. Truncating the encoder input to {self.encoder_seq_len}.")
+            # Truncate the encoder input to the encoder sequence length
+            encoder_input = encoder_input[:, :self.encoder_seq_len, :]
+            # Truncate the encoder padding mask to the encoder sequence length
+            encoder_padding_mask = encoder_padding_mask[:, :self.encoder_seq_len]
+
+        # Add the residual vector to the encoder input
+        positions = self.encoder_embed_positions(encoder_padding_mask)
+        encoder_input = encoder_input + self.encoder_embed_positions(encoder_padding_mask)
+
+        # Add the modality vector to the shared-encoder's input
+        encoder_input = encoder_input + self.modality_vectors(torch.tensor(input_type == 'speech', dtype=torch.long, device=encoder_input.device))
+
+        # Encoder: T x B x C
+        # Cihan: Here we explicitly set the encoder_padding_mask to all False
+        encoder_padding_mask = torch.zeros_like(encoder_padding_mask, dtype=torch.bool)
+        return encoder_input, encoder_padding_mask
+        
 
     def forward(self, source=None, src_tokens=None, src_lengths=None, prev_output_tokens=None, tgt_lengths=None, spkembs=None, target_list=None, task_name=None, padding_mask=None, only_hubert=False, only_ctc=False, feature_only=False, tgt_enc_layer=None, mask=True):
         """
@@ -872,37 +914,39 @@ class T5TransformerModel(FairseqEncoderDecoderModel):
 
         # Pad the features with a pad embedding and re-add the positional encoding
         if self.encoder_seq_len is not None:
-            # First replace the padded tokens/features with the residual vector, that is everywhere the encoder_padding_mask is True
-            _mask = encoder_padding_mask.bool().unsqueeze(-1).expand_as(encoder_input)
-            encoder_input = torch.where(_mask, self.residual_vector, encoder_input)
+            encoder_input, encoder_padding_mask = self.forward_residual(encoder_input, encoder_padding_mask, input_type=input_type)
+            # # First replace the padded tokens/features with the residual vector, that is everywhere the encoder_padding_mask is True
+            # _mask = encoder_padding_mask.bool().unsqueeze(-1).expand_as(encoder_input)
+            # encoder_input = torch.where(_mask, self.residual_vector, encoder_input)
 
-            # Concatenate the encoder input with residual vectors up to the encoder sequence length
-            diff = self.encoder_seq_len - encoder_input.size(1)
-            if diff > 0:
-                # Pad the encoder input with the residual vector
-                pad = self.residual_vector.unsqueeze(0).expand(encoder_input.size(0), diff, -1)
-                encoder_input = torch.cat([encoder_input, pad], dim=1)
-                # Pad the encoder padding mask with ones
-                pad_mask = torch.ones(encoder_padding_mask.size(0), diff, dtype=torch.bool, device=encoder_padding_mask.device)
-                encoder_padding_mask = torch.cat([encoder_padding_mask, pad_mask], dim=1)
-            elif diff < 0:
-                # Send out a warning if the encoder input is longer than the encoder sequence length
-                logger.warning(f"Encoder input is longer than the encoder sequence length. Truncating the encoder input to {self.encoder_seq_len}.")
-                # Truncate the encoder input to the encoder sequence length
-                encoder_input = encoder_input[:, :self.encoder_seq_len, :]
-                # Truncate the encoder padding mask to the encoder sequence length
-                encoder_padding_mask = encoder_padding_mask[:, :self.encoder_seq_len]
+            # # Concatenate the encoder input with residual vectors up to the encoder sequence length
+            # diff = self.encoder_seq_len - encoder_input.size(1)
+            # if diff > 0:
+            #     # Pad the encoder input with the residual vector
+            #     pad = self.residual_vector.unsqueeze(0).expand(encoder_input.size(0), diff, -1)
+            #     encoder_input = torch.cat([encoder_input, pad], dim=1)
+            #     # Pad the encoder padding mask with ones
+            #     pad_mask = torch.ones(encoder_padding_mask.size(0), diff, dtype=torch.bool, device=encoder_padding_mask.device)
+            #     encoder_padding_mask = torch.cat([encoder_padding_mask, pad_mask], dim=1)
+            # elif diff < 0:
+            #     # Send out a warning if the encoder input is longer than the encoder sequence length
+            #     logger.warning(f"Encoder input is longer than the encoder sequence length. Truncating the encoder input to {self.encoder_seq_len}.")
+            #     # Truncate the encoder input to the encoder sequence length
+            #     encoder_input = encoder_input[:, :self.encoder_seq_len, :]
+            #     # Truncate the encoder padding mask to the encoder sequence length
+            #     encoder_padding_mask = encoder_padding_mask[:, :self.encoder_seq_len]
 
-        # Add the residual vector to the encoder input
-        positions = self.encoder_embed_positions(encoder_padding_mask)
-        encoder_input = encoder_input + self.encoder_embed_positions(encoder_padding_mask)
+            # # Add the residual vector to the encoder input
+            # positions = self.encoder_embed_positions(encoder_padding_mask)
+            # encoder_input = encoder_input + self.encoder_embed_positions(encoder_padding_mask)
 
-        # Add the modality vector to the shared-encoder's input
-        encoder_input = encoder_input + self.modality_vectors(torch.tensor(input_type == 'speech', dtype=torch.long, device=encoder_input.device))
+            # # Add the modality vector to the shared-encoder's input
+            # encoder_input = encoder_input + self.modality_vectors(torch.tensor(input_type == 'speech', dtype=torch.long, device=encoder_input.device))
 
-        # Encoder: T x B x C
-        # Cihan: Here we explicitly set the encoder_padding_mask to all False
-        encoder_padding_mask = torch.zeros_like(encoder_padding_mask, dtype=torch.bool)
+            # # Encoder: T x B x C
+            # # Cihan: Here we explicitly set the encoder_padding_mask to all False
+            # encoder_padding_mask = torch.zeros_like(encoder_padding_mask, dtype=torch.bool)
+        
         encoder_output = self.encoder(
             encoder_input, encoder_padding_mask,
             tgt_layer=tgt_enc_layer,
@@ -1018,7 +1062,7 @@ class T5TransformerModel(FairseqEncoderDecoderModel):
                                              full_context_alignment=getattr(self.args, "decoder_full_context_alignment", False), 
                                              alignment_layer=(-1 if target_list is None and output_type == 'speech' else None))
         maybe_empty_cache(limit_mib=self.clear_cache_threshold, verbose=self.clear_cache_verbose)
-        
+
         # Decoder Postnet
         if task_name is not None and task_name == 's2c':
             if not getattr(self.args, "sid_t5_postnet", False):
@@ -1231,9 +1275,23 @@ class T5TransformerModel(FairseqEncoderDecoderModel):
     def forward_encoder(self, source, padding_mask=None):
         # Encoder Prenet
         encoder_input, encoder_padding_mask = self.speech_encoder_prenet(source, padding_mask=padding_mask, mask=False)
-
-        # Encoder
-        encoder_output = self.encoder(encoder_input, encoder_padding_mask)
+        if self.encoder_seq_len is not None:
+            orginal_encoder_input = encoder_input
+            orginal_encoder_padding_mask = encoder_padding_mask
+            encoder_input, encoder_padding_mask = self.forward_residual(encoder_input, encoder_padding_mask, input_type='speech')
+            # Encoder
+            encoder_output = self.encoder(
+                encoder_input,
+                encoder_padding_mask,
+                extra_encoder_in=orginal_encoder_input,
+                extra_encoder_padding_mask=orginal_encoder_padding_mask,
+            )
+        else:
+            # Encoder
+            encoder_output = self.encoder(
+                encoder_input,
+                encoder_padding_mask,
+            )
 
         return encoder_output
 
@@ -1242,7 +1300,15 @@ class T5TransformerModel(FairseqEncoderDecoderModel):
         encoder_input, encoder_padding_mask = self.text_encoder_prenet(src_tokens)
 
         # Encoder
-        encoder_output = self.encoder(encoder_input, encoder_padding_mask)
+        if self.encoder_seq_len is not None:
+            encoder_input, encoder_padding_mask = self.forward_residual(encoder_input, encoder_padding_mask, input_type='text')
+            # Encoder
+            encoder_output = self.encoder(
+                encoder_input,
+                encoder_padding_mask,
+            )
+        else:
+            encoder_output = self.encoder(encoder_input, encoder_padding_mask)
 
         return encoder_output
 
