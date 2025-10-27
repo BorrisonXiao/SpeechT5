@@ -589,7 +589,6 @@ class SpeechT5Task(LegacyFairseqTask):
     def train_step(
         self, sample, model, criterion, optimizer, update_num, ignore_grad=False
     ):
-        
         model.train()
         model.set_num_updates(update_num)
 

@@ -433,6 +433,7 @@ class T5TransformerModel(FairseqEncoderDecoderModel):
         parser.add_argument(
             '--feature-grad-mult',
             type=float,
+            default=1.0,
             help='multiply feature extractor var grads by this'
         )
         parser.add_argument(
@@ -647,6 +648,16 @@ class T5TransformerModel(FairseqEncoderDecoderModel):
             default=30720,
             help="threshold for clearing cache, i.e. torch.cuda.empty_cache() will be called if "
             "the number of parameters in the model is larger than this value (in MiB)",
+        )
+        parser.add_argument(
+            "--decoder-input-mode",
+            type=str,
+            choices=["concat", "prenet_only", "shared_only"],
+            default="concat",
+            help="the input mode of the decoder."
+            "e.g., concat - concatenate prenet and shared encoder output features;"
+            "prenet_only - use prenet output features only;"
+            "shared_only - use shared encoder output features only",
         )
 
     # Encoder, Decoder
@@ -892,6 +903,8 @@ class T5TransformerModel(FairseqEncoderDecoderModel):
             encoder_input, encoder_padding_mask = self.text_encoder_prenet(src_tokens)
             # Add the text modality vector to the encoder input
             # encoder_input = encoder_input + self.modality_vectors(torch.tensor(0, device=encoder_input.device))
+            text_encoder_input = encoder_input
+            text_padding_mask = encoder_padding_mask.clone()
         else:
             if target_list is not None:
                 encoder_input, encoder_padding_mask = self.speech_encoder_prenet(source, require_feat_pen=True, target_list=target_list, padding_mask=padding_mask, mask=mask)
@@ -1058,6 +1071,26 @@ class T5TransformerModel(FairseqEncoderDecoderModel):
 
         maybe_empty_cache(limit_mib=self.clear_cache_threshold, verbose=self.clear_cache_verbose)
         # Decoder
+        if self.args.decoder_input_mode == "concat":
+            # Apply the modality vector to the hubert encoder input
+            if input_type == "text":
+                prenet_features = text_encoder_input + self.modality_vectors(torch.tensor(0, dtype=torch.long, device=text_encoder_input.device))
+            else:
+                prenet_features = hubert_encoder_input + self.modality_vectors(torch.tensor(1, dtype=torch.long, device=hubert_encoder_input.device))
+            # Concat the prenet features with the encoder output
+            encoder_output["encoder_out"] = [torch.cat([encoder_output["encoder_out"][0].transpose(0, 1), prenet_features], dim=1).transpose(0, 1)]
+            # Concat the corresponding padding mask
+            org_padding_mask = hubert_padding_mask if input_type == "speech" else text_padding_mask
+            encoder_output["encoder_padding_mask"] = [torch.cat([encoder_output["encoder_padding_mask"][0], org_padding_mask], dim=1)]
+        elif self.args.decoder_input_mode == "prenet_only":
+            # Use only the prenet features as the input of the decoder
+            if input_type == "text":
+                encoder_output["encoder_out"] = [text_encoder_input.transpose(0, 1)]
+                encoder_output["encoder_padding_mask"] = [text_padding_mask]
+            else:
+                encoder_output["encoder_out"] = [hubert_encoder_input.transpose(0, 1)]
+                encoder_output["encoder_padding_mask"] = [hubert_padding_mask]
+        
         decoder_output, extra = self.decoder(prev_output_tokens, tgt_mask, encoder_output, 
                                              full_context_alignment=getattr(self.args, "decoder_full_context_alignment", False), 
                                              alignment_layer=(-1 if target_list is None and output_type == 'speech' else None))
@@ -1286,6 +1319,18 @@ class T5TransformerModel(FairseqEncoderDecoderModel):
                 extra_encoder_in=orginal_encoder_input,
                 extra_encoder_padding_mask=orginal_encoder_padding_mask,
             )
+
+            if self.args.decoder_input_mode == "concat":
+                # Apply the modality vector to the hubert encoder input
+                prenet_features = orginal_encoder_input + self.modality_vectors(torch.tensor(1, dtype=torch.long, device=orginal_encoder_input.device))
+                # Concat the prenet features with the encoder output
+                encoder_output["encoder_out"] = [torch.cat([encoder_output["encoder_out"][0].transpose(0, 1), prenet_features], dim=1).transpose(0, 1)]
+                # Concat the corresponding padding mask
+                encoder_output["encoder_padding_mask"] = [torch.cat([encoder_output["encoder_padding_mask"][0], orginal_encoder_padding_mask], dim=1)]
+            elif self.args.decoder_input_mode == "prenet_only":
+                # Use only the prenet features as the input of the decoder
+                encoder_output["encoder_out"] = [orginal_encoder_input.transpose(0, 1)]
+                encoder_output["encoder_padding_mask"] = [orginal_encoder_padding_mask]
         else:
             # Encoder
             encoder_output = self.encoder(

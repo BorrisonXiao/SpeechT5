@@ -158,6 +158,7 @@ if [ $stage -le 1 ] && [ $stop_stage -ge 1 ]; then
         --keep-last-epochs 4 \
         --feature-grad-mult 1.0 \
         --best-checkpoint-metric s2t_accuracy \
+        --decoder-input-mode concat \
         --maximize-best-checkpoint-metric \
         --clear-cache-threshold 71680 \
         --finetune-from-model ${PT_CHECKPOINT_PATH} \

@@ -158,6 +158,9 @@ class TexttoSpeechLoss(FairseqCriterion):
         olens = sample["dec_target_lengths"]
         ilens = sample["src_lengths"]
 
+        if hasattr(model.args, 'decoder_input_mode') and model.args.decoder_input_mode == "concat":
+            ilens += model.args.encoder_seq_len
+
         # modifiy mod part of groundtruth
         if model.reduction_factor > 1:
             olens_in = olens.new([torch.div(olen, model.reduction_factor, rounding_mode='floor') for olen in olens])

@@ -1,17 +1,16 @@
 #!/usr/bin/env bash
 #
-#SBATCH --job-name=ft_asr
+#SBATCH --job-name=inference_asr
 #SBATCH --nodes=1
-#SBATCH --gpus=4
+#SBATCH --gpus=1
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=8
 #SBATCH --partition=reserve_q
-#SBATCH -w d01
 #SBATCH --account=reserve
 #SBATCH --time=240:00:00
-#SBATCH --output=logs/asr/%j.out
+#SBATCH --output=logs/inference_asr/%j.out
 
-. ~/.bashrc
+# . ~/.bashrc
 
 module purge
 module load conda
@@ -20,13 +19,19 @@ module load cuda/12.4
 nvidia-smi
 nvcc --version
 
-conda activate /home/cxiao7/research/discrete/espnet_meili/tools/miniconda/envs/mult5
+# conda deactivate && conda activate /home/cxiao7/research/discrete/espnet_meili/tools/miniconda/envs/mult5
+conda deactivate && conda deactivate
+. $(conda info --base)/etc/profile.d/conda.sh && conda deactivate && conda activate mult5
 export LD_LIBRARY_PATH=$HOME/research/discrete/espnet_meili/tools/miniconda/envs/mult5/lib/python3.9/site-packages/nvidia/nvjitlink/lib:$LD_LIBRARY_PATH
 export PYTHONPATH=$PYTHONPATH:$PWD/fairseq
 # Forces all CUDA operations to execute in order and completely finish before moving forward.
 export CUDA_LAUNCH_BLOCKING=1
 # Catch device-side assertions and errors
 export TORCH_USE_CUDA_DSA=1
+
+# TQDM-related
+export PYTHONUNBUFFERED=1
+export TQDM_MININTERVAL=5  # Force more frequent updates
 
 # Debug silent hangs
 export NCCL_DEBUG=TRACE
@@ -64,35 +69,41 @@ log() {
     echo -e "$(date '+%Y-%m-%d %H:%M:%S') (${fname}:${BASH_LINENO[0]}:${FUNCNAME[1]}) $*"
 }
 
-root_dir=/export/fs06/ahussei6/multimodal
 data_dir=data
 spm_model=models/self_trained/spm_bpe_3000.model.model
 expdir=exp
 
 lab_dir=${data_dir}/asr
 
-# CHECKPOINT_PATH=exp/asr/v1.3/checkpoint_best.pt
+eval_script=scripts/wer.py
+
+# CHECKPOINT_PATH=exp/asr/v1.4/checkpoint_best.pt
+CHECKPOINT_PATH=exp/asr/v1.4/checkpoint_24_80000.pt
+tag=v1.4-checkpoint_24_80000
 # CHECKPOINT_PATH=exp/asr/v1.1/checkpoint_2_5000.pt
-CHECKPOINT_PATH=exp/asr/v1.3/checkpoint_5_16000.pt
+# CHECKPOINT_PATH=exp/asr/v1.3/checkpoint_5_16000.pt
 DATA_ROOT=${lab_dir}
 # SUBSETS="dev_clean dev_other test-clean test-other"  # List of subsets
-SUBSETS="test-clean test-other" # List of subsets
+# SUBSETS="test-clean test-other" # List of subsets
+SUBSETS="test-clean.chunked" # List of subsets
 BPE_TOKENIZER=$spm_model
 LABEL_DIR=$DATA_ROOT
 USER_DIR=speecht5
 BEAM=10 #10
 MAX_TOKENS=4000000
-BATCH_SIZE=2
+BATCH_SIZE=4
 CTC_WEIGHT=0
 LM_WEIGHT=0
 JOBID=$(date +%Y%m%d%H%M%S)
+
+. scripts/parse_options.sh || exit 1;
 
 # Loop over all subsets
 for SUBSET in $SUBSETS; do
     echo "Processing subset: ${SUBSET}"
 
     if [ "$CTC_WEIGHT" != "0" ]; then
-        SAVE_DIR=${expdir}/inference_asr/att_ctc_${CTC_WEIGHT}
+        SAVE_DIR=${expdir}/inference_asr/att_ctc_${CTC_WEIGHT}/${tag}
         mkdir -p ${SAVE_DIR}
         MAX_TOKENS=
         echo "max tokens: ${MAX_TOKENS}"
@@ -103,9 +114,7 @@ for SUBSET in $SUBSETS; do
             --user-dir ${USER_DIR} \
             --task speecht5 \
             --t5-task s2t \
-            --encoder-speech-prenet mel \
             --encoder-seq-len 999 \
-            --mel-hop-scale 2 \
             --model-parallel-size 1 \
             --path ${CHECKPOINT_PATH} \
             --hubert-label-dir ${LABEL_DIR} \
@@ -117,10 +126,11 @@ for SUBSET in $SUBSETS; do
             --max-len-a 0 \
             --max-len-b 620 \
             --sample-rate 16000 \
-            --num-workers 2 >${SAVE_DIR}/${SUBSET}.log
+            --results-path ${SAVE_DIR}/${SUBSET}_BEAM_${BEAM}.out # \
+        # --num-workers 2 >${SAVE_DIR}/${SUBSET}.log
     else
         # Run fairseq-generate and save only the last line of output
-        SAVE_DIR=${expdir}/inference_asr/att
+        SAVE_DIR=${expdir}/inference_asr/att/${tag}
 
         mkdir -p ${SAVE_DIR}
         # python -m pdb $(which fairseq-generate) ${DATA_ROOT} \
@@ -139,16 +149,22 @@ for SUBSET in $SUBSETS; do
             --max-tokens ${MAX_TOKENS} \
             --batch-size ${BATCH_SIZE} \
             --scoring wer \
+            --log-interval 1 \
             --max-len-a 0 \
             --max-len-b 620 \
             --sample-rate 16000 \
+            --results-path ${SAVE_DIR}/${SUBSET}_BEAM_${BEAM}.out \
             --num-workers 2
-            # >${SAVE_DIR}/${SUBSET}_BEAM_${BEAM}.log
-            # --results-path ${SAVE_DIR}/${SUBSET}_BEAM_${BEAM}.out \
-        #  \
 
         echo "Finished processing subset: ${SUBSET}. Last line saved to ${SAVE_DIR}/${SUBSET}_BEAM_${BEAM}.log"
     fi
+
+    if [ -n "$eval_script" ]; then
+        # Run the evaluation script
+        python $eval_script -i ${SAVE_DIR}/${SUBSET}_BEAM_${BEAM}.out/generate-${SUBSET}.txt \
+            -t ${DATA_ROOT}/${SUBSET}.txt
+        echo "Evaluation results saved to ${SAVE_DIR}/${SUBSET}_BEAM_${BEAM}.eval"
+    fi
 done
 
-            # --mel-hop-scale 2 \
+# --mel-hop-scale 2 \
