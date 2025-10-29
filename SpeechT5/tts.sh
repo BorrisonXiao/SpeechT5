@@ -1,15 +1,15 @@
 #!/usr/bin/env bash
 #
-#SBATCH --job-name=ft_asr
+#SBATCH --job-name=tts
 #SBATCH --nodes=1
 #SBATCH --gpus=4
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=8
 #SBATCH --partition=reserve_q
-#SBATCH -w d01
+#SBATCH -w d02
 #SBATCH --account=reserve
 #SBATCH --time=240:00:00
-#SBATCH --output=logs/asr/%j.out
+#SBATCH --output=logs/tts/%j.out
 
 module purge
 module load conda
@@ -63,7 +63,7 @@ log() {
     echo -e "$(date '+%Y-%m-%d %H:%M:%S') (${fname}:${BASH_LINENO[0]}:${FUNCNAME[1]}) $*"
 }
 
-data_dir=data
+data_dir=data/libriTTS
 expdir=exp
 spm_model=models/self_trained/spm_bpe_3000.model.model
 # pretrain_model=exp/pretrain/mel_v1/checkpoint_5_73000.pt
@@ -72,9 +72,7 @@ pretrain_model=exp/pretrain/mel_v1/checkpoint_last.pt
 stage=1
 stop_stage=1
 
-nshard=1
-split=train
-lab_dir=${data_dir}/asr
+lab_dir=${data_dir}/tts
 
 if [ $stage -le 1 ] && [ $stop_stage -ge 1 ]; then
     log "Stage 1: Run the TTS fine-tuning script..."
@@ -100,10 +98,9 @@ if [ $stage -le 1 ] && [ $stop_stage -ge 1 ]; then
         --ddp-backend pytorch_ddp \
         --user-dir speecht5 \
         --log-format simple \
-        --seed 1337 \
+        --seed 1 \
         --fp16 \
         --fp16-scale-tolerance=0.2 \
-        --fp16-init-scale 32 \
         --gradient-checkpointing \
         \
         --task speecht5 \
@@ -117,11 +114,10 @@ if [ $stage -le 1 ] && [ $stop_stage -ge 1 ]; then
         --mel-hop-scale 2 \
         --batch-size 12 \
         --batch-size-valid 24 \
-        --update-freq 1 \
+        --update-freq 2 \
         --bpe-tokenizer ${spm_model} \
         \
         --criterion speecht5 \
-        --use-guided-attn-loss \
         --report-accuracy \
         --sentence-avg \
         \
@@ -134,20 +130,21 @@ if [ $stage -le 1 ] && [ $stop_stage -ge 1 ]; then
         --decoder-layerdrop 0.0 \
         --weight-decay 0.0 \
         --clip-norm 25.0 \
-        --lr 0.0001 \
+        --lr 0.00004 \
         --lr-scheduler inverse_sqrt \
-        --warmup-updates 10000 \
+        --warmup-updates 500 \
+        --feature-grad-mult 1.0 \
         \
-        --max-update 80000 \
+        --max-update 10000 \
         --max-text-positions 999 \
         --min-speech-sample-size 1056 \
         --max-speech-sample-size 480256 \
         --max-speech-positions 999 \
         --required-batch-size-multiple 1 \
-        --validate-after-updates 10000 \
+        --validate-after-updates 400 \
         --skip-invalid-size-inputs-valid-test \
         --validate-interval 50 \
-        --save-interval-updates 2000 \
+        --save-interval-updates 400 \
         --log-interval 10 \
         \
         --arch t5_transformer_base_asr \

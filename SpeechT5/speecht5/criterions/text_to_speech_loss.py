@@ -193,26 +193,27 @@ class TexttoSpeechLoss(FairseqCriterion):
         # calculate guided attention loss
         enc_dec_attn_loss = None
         if self.use_guided_attn_loss:
-            # calculate the input lengths of encoder, which is determined by encoder prenet
-            if hasattr(model, 'encoder_reduction_factor') and model.encoder_reduction_factor > 1:
-                ilens_in = ilens.new([ilen // model.encoder_reduction_factor for ilen in ilens])
-            else:
-                ilens_in = ilens
-            # work for speech to speech model's input
-            if "task_name" in sample and sample["task_name"] == "s2s":
-                m = None
-                if hasattr(model, 'encoder_prenet'):
-                    m = model.encoder_prenet
-                elif hasattr(model, 'speech_encoder_prenet'):
-                    m = model.speech_encoder_prenet
-                if m is not None and isinstance(m, SpeechEncoderPrenet):
-                    ilens_in = m.get_src_lengths(ilens_in)
-            # calculate for encoder-decoder
-            if "encoder-decoder" in self.modules_applied_guided_attn:
-                attn = [att_l[:, : self.num_heads_applied_guided_attn] for att_l in attn]
-                att_ws = torch.cat(attn, dim=1)  # (B, H*L, T_out, T_in)
-                enc_dec_attn_loss = self.attn_criterion(att_ws, ilens_in, olens_in)
-                loss = loss + enc_dec_attn_loss
+            logging.warn("Guided attention loss is not supported for the MulT5 implementation as the diagonal assumption is no longer valid.")
+        #     # calculate the input lengths of encoder, which is determined by encoder prenet
+        #     if hasattr(model, 'encoder_reduction_factor') and model.encoder_reduction_factor > 1:
+        #         ilens_in = ilens.new([ilen // model.encoder_reduction_factor for ilen in ilens])
+        #     else:
+        #         ilens_in = ilens
+        #     # work for speech to speech model's input
+        #     if "task_name" in sample and sample["task_name"] == "s2s":
+        #         m = None
+        #         if hasattr(model, 'encoder_prenet'):
+        #             m = model.encoder_prenet
+        #         elif hasattr(model, 'speech_encoder_prenet'):
+        #             m = model.speech_encoder_prenet
+        #         if m is not None and isinstance(m, SpeechEncoderPrenet):
+        #             ilens_in = m.get_src_lengths(ilens_in)
+        #     # calculate for encoder-decoder
+        #     if "encoder-decoder" in self.modules_applied_guided_attn:
+        #         attn = [att_l[:, : self.num_heads_applied_guided_attn] for att_l in attn]
+        #         att_ws = torch.cat(attn, dim=1)  # (B, H*L, T_out, T_in)
+        #         enc_dec_attn_loss = self.attn_criterion(att_ws, ilens_in, olens_in)
+        #         loss = loss + enc_dec_attn_loss
 
         return loss, l1_loss, l2_loss, bce_loss, enc_dec_attn_loss
 

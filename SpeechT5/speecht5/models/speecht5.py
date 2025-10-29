@@ -1344,6 +1344,9 @@ class T5TransformerModel(FairseqEncoderDecoderModel):
         # Text Encoder Prenet
         encoder_input, encoder_padding_mask = self.text_encoder_prenet(src_tokens)
 
+        orginal_encoder_input = encoder_input
+        original_encoder_padding_mask = encoder_padding_mask
+
         # Encoder
         if self.encoder_seq_len is not None:
             encoder_input, encoder_padding_mask = self.forward_residual(encoder_input, encoder_padding_mask, input_type='text')
@@ -1354,6 +1357,20 @@ class T5TransformerModel(FairseqEncoderDecoderModel):
             )
         else:
             encoder_output = self.encoder(encoder_input, encoder_padding_mask)
+        
+        if self.args.decoder_input_mode == "concat":
+            # Apply the modality vector to the text encoder input
+            prenet_features = orginal_encoder_input + self.modality_vectors(torch.tensor(0, dtype=torch.long, device=orginal_encoder_input.device))
+            # Concat the prenet features with the encoder output
+            encoder_output["encoder_out"] = [torch.cat([encoder_output["encoder_out"][0].transpose(0, 1), prenet_features], dim=1).transpose(0, 1)]
+            # Concat the corresponding padding mask
+            encoder_output["encoder_padding_mask"] = [torch.cat([encoder_output["encoder_padding_mask"][0], original_encoder_padding_mask], dim=1)]
+        elif self.args.decoder_input_mode == "prenet_only":
+            # Use only the prenet features as the input of the decoder
+            encoder_output["encoder_out"] = [orginal_encoder_input.transpose(0, 1)]
+            encoder_output["encoder_padding_mask"] = [original_encoder_padding_mask]
+        
+        encoder_output["prenet_out"] = orginal_encoder_input.transpose(0,1)
 
         return encoder_output
 
@@ -1415,8 +1432,9 @@ class T5TransformerModel(FairseqEncoderDecoderModel):
             ).transpose(0, 1)]
             spkembs = None
 
-        maxlen = int(encoder_out["encoder_out"][0].size(0) * maxlenratio / self.reduction_factor)
-        minlen = int(encoder_out["encoder_out"][0].size(0) * minlenratio / self.reduction_factor)
+        input_seq_len = encoder_out["encoder_out"][0].size(0) if "prenet_out" not in encoder_out else encoder_out["prenet_out"].size(0)
+        maxlen = int(input_seq_len * maxlenratio / self.reduction_factor)
+        minlen = int(input_seq_len * minlenratio / self.reduction_factor)
         
         idx = 0
         ys = encoder_out["encoder_out"][0].new_zeros(1, 1, self.speech_decoder_postnet.odim)

@@ -1,0 +1,120 @@
+#!/usr/bin/env bash
+#
+#SBATCH --job-name=inference_asr
+#SBATCH --nodes=1
+#SBATCH --gpus=1
+#SBATCH --ntasks=1
+#SBATCH --cpus-per-task=8
+#SBATCH --partition=reserve_q
+#SBATCH --account=reserve
+#SBATCH --time=240:00:00
+#SBATCH --output=logs/inference_asr/%j.out
+
+# . ~/.bashrc
+
+module purge
+module load conda
+module load cuda/12.4
+/bin/hostname
+nvidia-smi
+nvcc --version
+
+# conda deactivate && conda activate /home/cxiao7/research/discrete/espnet_meili/tools/miniconda/envs/mult5
+conda deactivate && conda deactivate
+. $(conda info --base)/etc/profile.d/conda.sh && conda deactivate && conda activate mult5
+export LD_LIBRARY_PATH=$HOME/research/discrete/espnet_meili/tools/miniconda/envs/mult5/lib/python3.9/site-packages/nvidia/nvjitlink/lib:$LD_LIBRARY_PATH
+export PYTHONPATH=$PYTHONPATH:$PWD/fairseq
+# Forces all CUDA operations to execute in order and completely finish before moving forward.
+export CUDA_LAUNCH_BLOCKING=1
+# Catch device-side assertions and errors
+export TORCH_USE_CUDA_DSA=1
+
+# TQDM-related
+export PYTHONUNBUFFERED=1
+export TQDM_MININTERVAL=5 # Force more frequent updates
+
+# Debug silent hangs
+export NCCL_DEBUG=TRACE
+export NCCL_DEBUG_FILE=nccl_debug.log    # Log file for NCCL debug output
+export TORCH_DISTRIBUTED_DEBUG=DETAIL    # Provides granular communication debugging
+export TORCH_NCCL_ASYNC_ERROR_HANDLING=1 # Ensures errors propagate immediately
+
+# To avoid fragmentation issues, turns out doesn't help
+# export PYTORCH_CUDA_ALLOC_CONF=max_split_size_mb:128
+
+# To avoid fragmentation issues based on the advice of the PyTorch team
+PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+
+# Disabling CUDA caching for debugging, in fact this seems to reduce the memory overhead significantly but
+# at the cost of speed (which turns out to be significant as well)
+# export PYTORCH_NO_CUDA_MEMORY_CACHING=1
+
+export PYTORCH_CUDA_ALLOC_CONF=garbage_collection_threshold:0.8
+
+# The following two seem to help with hangs
+# export NCCL_IB_DISABLE=1  # Disable InfiniBand if not used
+# export NCCL_P2P_LEVEL=SYS
+# export NCCL_SOCKET_IFNAME=eth0  # Use the correct network interface
+
+# Disable P2P to avoid hangs (doesn't quite work though)
+# export NCCL_P2P_DISABLE=1
+
+# export CUDA_VISIBLE_DEVICES=0,1
+
+set -eou pipefail
+
+log() {
+    # This function is from espnet
+    local fname=${BASH_SOURCE[1]##*/}
+    echo -e "$(date '+%Y-%m-%d %H:%M:%S') (${fname}:${BASH_LINENO[0]}:${FUNCNAME[1]}) $*"
+}
+
+data_dir=data/libriTTS
+spm_model=models/self_trained/spm_bpe_3000.model.model
+expdir=exp
+
+lab_dir=${data_dir}/tts
+
+# CHECKPOINT_PATH=exp/tts/20251024112042/checkpoint_4_18000.pt
+# tag=v1.0-checkpoint_4_18000
+CHECKPOINT_PATH=exp/tts/20251028030717/checkpoint_17_10000.pt
+tag=v1.1-checkpoint_17_10000
+DATA_ROOT=${lab_dir}
+# SUBSETS="test-clean" # List of subsets
+SUBSETS="speech_train" # List of subsets
+BPE_TOKENIZER=$spm_model
+LABEL_DIR=$DATA_ROOT
+USER_DIR=speecht5
+BATCH_SIZE=1 # Only supports batch size 1 for TTS inference
+
+. scripts/parse_options.sh || exit 1
+
+# Loop over all subsets
+for SUBSET in $SUBSETS; do
+    echo "Processing subset: ${SUBSET}"
+
+
+    SAVE_DIR=${expdir}/inference_tts/${tag}/${SUBSET}
+    # Remove the existing audio demos if any
+    dir="${expdir}/inference_tts/${tag}"
+    demo="${dir}/demo"
+
+    if [ -d "$demo" ]; then
+        i=1
+        while [ -d "${demo}.${i}" ]; do
+            i=$((i+1))
+        done
+        mv "$demo" "${demo}.${i}"
+    fi
+    python3 scripts/generate_speech.py ${DATA_ROOT} \
+        --gen-subset ${SUBSET} \
+        --bpe-tokenizer ${BPE_TOKENIZER} \
+        --user-dir ${USER_DIR} \
+        --task speecht5 \
+        --t5-task t2s \
+        --path ${CHECKPOINT_PATH} \
+        --hubert-label-dir ${LABEL_DIR} \
+        --batch-size ${BATCH_SIZE} \
+        --results-path ${SAVE_DIR} \
+        --sample-rate 16000
+done

@@ -23,8 +23,8 @@ train_spm=true
 dict_path=
 max_token_len=1249
 
-stage=8
-stop_stage=8
+stage=0
+stop_stage=0
 
 train_sets="train-clean-100 train-clean-360 train-other-500"
 dev_sets="dev-clean dev-other"
@@ -61,14 +61,14 @@ if [ $stage -le 0 ] && [ $stop_stage -ge 0 ]; then
     # Process the test set
     for split in ${test_sets}; do
         # Create a proxy directory for the split
-        ln -sfv ${org_data_dir}/${split} ${tsv_dir}/raw/test
-        # python fairseq/examples/wav2vec/wav2vec_manifest.py ${tsv_dir}/raw/test --dest ${tsv_dir}/valid --ext flac --valid-percent 0
+        mkdir -p ${tsv_dir}/raw/test/${split}
+        ln -sfv ${org_data_dir}/${split}/* ${tsv_dir}/raw/test/${split}
         python fairseq/examples/wav2vec/wav2vec_manifest.py ${tsv_dir}/raw/test/${split} --dest ${tsv_dir}/test/${split} --ext flac --valid-percent 0
         # Rename the file
-        # cp ${tsv_dir}/valid/train.tsv ${tsv_dir}/speech_valid.tsv
         cp ${tsv_dir}/test/${split}/train.tsv ${tsv_dir}/${split}.tsv
+        ln -sfv ${xvector_dir} ${tsv_dir}/raw/test/${split}
     done
-    ln -sfv ${xvector_dir} ${tsv_dir}/raw/test
+    # ln -sfv ${xvector_dir} ${tsv_dir}/raw/test
 
     # # Process the training set
     # for split in ${train_sets}; do
@@ -82,16 +82,16 @@ if [ $stage -le 0 ] && [ $stop_stage -ge 0 ]; then
 
     # Add speaker embedding to the last column
     # for split in "speech_train" "speech_valid"; do
-    # for split in "speech_train"; do
-    #     python scripts/integrate_spkembs.py \
-    #         -i ${tsv_dir}/${split}.tsv \
-    #         --dset librispeech \
-    #         --xvectors ${data_dir}/xvectors.zip \
-    #         -o ${tsv_dir}/${split}_spk.tsv
+    for split in "test-clean"; do
+        python scripts/integrate_spkembs.py \
+            -i ${tsv_dir}/${split}.tsv \
+            --dset librispeech \
+            --xvectors ${data_dir}/xvectors.zip \
+            -o ${tsv_dir}/${split}_spk.tsv
 
     #     # Generate the hubert features
     #     python fairseq/examples/hubert/simple_kmeans/dump_hubert_feature.py ${tsv_dir} ${split} ${ckpt_path} ${layer} ${nshard} ${rank} ${feat_dir}
-    # done
+    done
 fi
 
 if [ $stage -le 1 ] && [ $stop_stage -ge 1 ]; then

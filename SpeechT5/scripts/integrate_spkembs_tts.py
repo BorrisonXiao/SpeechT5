@@ -49,8 +49,19 @@ def integrate_spkembs(
         if i == 0:
             res.append(row)
             continue
-        spkid = delimiter.join(Path(row[0]).stem.split(delimiter)[:-1])
-        offset, length = spkid2offsets[spkid]
+        spkid = "-".join(Path(row[0]).stem.split(delimiter)[:-2])
+        if spkid in spkid2offsets:
+            offset, length = spkid2offsets[spkid]
+        else:
+            # If not found, rollback to the same speaker but different chapter, e.g. "103-1240" -> "103-xxxx"
+            # where "xxxx" can be any chapter id in the spkid2offsets
+            spkid_prefix = spkid.split("-")[0]
+            matched_spkids = [k for k in spkid2offsets.keys() if k.startswith(spkid_prefix + "-")]
+            if len(matched_spkids) == 0:
+                raise ValueError(f"Speaker id {spkid} not found in xvectors.")
+            spkid = matched_spkids[0]
+            offset, length = spkid2offsets[spkid]
+            
         res.append(row + [f"{Path(xvector_dir).name}:{offset}:{length}"])
 
     # Write the new tsv file

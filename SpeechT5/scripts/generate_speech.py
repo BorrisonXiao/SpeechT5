@@ -13,6 +13,9 @@ from fairseq.logging import progress_bar
 from omegaconf import DictConfig
 
 
+DEMO_NUM = 100  # number of samples to save demo images
+
+
 # define function for plot prob and att_ws
 def _plot_and_save(array, figname, figsize=(6, 4), dpi=150):
     import matplotlib.pyplot as plt
@@ -176,7 +179,7 @@ def _main(cfg: DictConfig, output_file):
             )
         )
 
-        if i < 6 and attn is not None:
+        if i < DEMO_NUM and attn is not None:
             import shutil
             demo_dir = op.join(op.dirname(cfg.common_eval.results_path), "demo")
             audio_dir = op.join(demo_dir, "audio")
