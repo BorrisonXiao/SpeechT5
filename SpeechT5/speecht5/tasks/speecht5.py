@@ -311,12 +311,12 @@ class SpeechT5Task(LegacyFairseqTask):
             default=None,
             help="if specified, the source tokens will be padded to this length. Theoretically, this should be same as max-speech-sample-size / hubert-downsample-ratio.",
         )
-        parser.add_argument(
-            "--encoder-seq-len",
-            type=int,
-            default=None,
-            help="if specified, the pre-encoder representatiosn will be padded to this length. Theoretically, this should be same as max-speech-sample-size / hubert-downsample-ratio.",
-        )
+        # parser.add_argument(
+        #     "--encoder-seq-len",
+        #     type=int,
+        #     default=None,
+        #     help="if specified, the pre-encoder representatiosn will be padded to this length. Theoretically, this should be same as max-speech-sample-size / hubert-downsample-ratio.",
+        # )
         parser.add_argument(
             "--pad-tgt-tokens-to-max-length",
             type=int,

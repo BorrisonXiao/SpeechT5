@@ -2,15 +2,13 @@
 #
 #SBATCH --job-name=pretrain
 #SBATCH --nodes=1
-#SBATCH --gpus=4
+#SBATCH --gpus=1
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=8
 #SBATCH --partition=gpu-a100
 #SBATCH --account=highprio
 #SBATCH --time=480:00:00
-#SBATCH --output=logs/%j.out
-
-. ~/.bashrc
+#SBATCH --output=logs/v2/pretrain_v2/%j.out
 
 module purge
 module load conda
@@ -19,7 +17,8 @@ module load cuda/12.4
 nvidia-smi
 nvcc --version
 
-conda activate /home/cxiao7/research/discrete/espnet_meili/tools/miniconda/envs/mult5
+conda deactivate && conda deactivate
+. $(conda info --base)/etc/profile.d/conda.sh && conda deactivate && conda activate mult5
 export LD_LIBRARY_PATH=$HOME/research/discrete/espnet_meili/tools/miniconda/envs/mult5/lib/python3.9/site-packages/nvidia/nvjitlink/lib:$LD_LIBRARY_PATH
 export PYTHONPATH=$PYTHONPATH:$PWD/fairseq
 # Forces all CUDA operations to execute in order and completely finish before moving forward.
@@ -64,23 +63,22 @@ log() {
 }
 
 data_dir=data
-expdir=exp
+expdir=exp_v2
 
 stage=1
 stop_stage=1
 
-nshard=1
-split=train
 lab_dir=${data_dir}/hubert_km_labels
 
 if [ $stage -le 1 ] && [ $stop_stage -ge 1 ]; then
     log "Stage 1: Run the pre-training script..."
     JOBID=$(date +%Y%m%d%H%M%S)
-    # JOBID=debug
+    JOBID=debug
     DATA_ROOT=${data_dir}/pretrain
     SAVE_DIR=${expdir}/pretrain/${JOBID}
     LABEL_DIR=${lab_dir}
-    TRAIN_SET="speech_train|text_train"
+    TRAIN_SET="speech_valid|text_valid"
+    # TRAIN_SET="speech_train|text_train"
     VALID_SET="speech_valid|text_valid"
 
     mkdir -p ${SAVE_DIR}
@@ -91,7 +89,7 @@ if [ $stage -le 1 ] && [ $stop_stage -ge 1 ]; then
         --train-subset ${TRAIN_SET} \
         --valid-subset ${VALID_SET} \
         --hubert-label-dir ${LABEL_DIR} \
-        --distributed-world-size 4 \
+        --distributed-world-size 1 \
         --distributed-port 0 \
         --ddp-backend pytorch_ddp \
         --user-dir speecht5 \
@@ -109,8 +107,8 @@ if [ $stage -le 1 ] && [ $stop_stage -ge 1 ]; then
         \
         --num-workers 0 \
         --max-tokens 10000000 \
-        --encoder-seq-len 999 \
-        --batch-size 25 \
+        --residual-matrix-len 512 \
+        --batch-size 20 \
         --batch-size-valid 40 \
         --max-speech-sample-size 320000 \
         --mel-hop-scale 2 \
@@ -133,7 +131,7 @@ if [ $stage -le 1 ] && [ $stop_stage -ge 1 ]; then
         --warmup-updates 10000 \
         --total-num-update 100000 \
         --save-interval-updates 1000 \
-        --log-interval 20 \
+        --log-interval 10 \
         --skip-invalid-size-inputs-valid-test \
         --required-batch-size-multiple 1 \
         --keep-last-epochs 4 \
@@ -142,6 +140,7 @@ if [ $stage -le 1 ] && [ $stop_stage -ge 1 ]; then
         --encoder-speech-prenet mel \
         --encoder-layers 12 \
         --speech-prenet-encoder-layers 12 \
+        --text-prenet-encoder-layers 6 \
         --share-input-output-embed \
         --find-unused-parameters \
         --bert-init \
@@ -152,9 +151,6 @@ if [ $stage -le 1 ] && [ $stop_stage -ge 1 ]; then
         --max-text-positions 999 \
         --clear-cache-threshold 71680
 fi
-
-        # --pad-audio-with-max \
-# --no-reshard-after-forward \
 
 # print(torch.cuda.memory_summary())
 

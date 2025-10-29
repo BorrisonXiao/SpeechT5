@@ -88,7 +88,7 @@ class SpeechPretrainCriterion(FairseqCriterion):
         """
         if self.dec_weight == 0:
             sample["net_input"]["only_hubert"] = True
-        net_output, net_output_dec = model(target_list=sample["target_list"], **sample["net_input"])
+        net_output, net_output_dec = model(target_list=sample["target_list"], **sample["net_input"], task_name=sample.get("task_name", None))
         loss = 0.
         sample_size = 0
         logging_output = {}

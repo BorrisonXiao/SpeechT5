@@ -158,8 +158,8 @@ class TexttoSpeechLoss(FairseqCriterion):
         olens = sample["dec_target_lengths"]
         ilens = sample["src_lengths"]
 
-        if hasattr(model.args, 'decoder_input_mode') and model.args.decoder_input_mode == "concat":
-            ilens += model.args.encoder_seq_len
+        if "task_name" in sample and sample["task_name"] == "t2s":
+            ilens += model.residual_matrix_len
 
         # modifiy mod part of groundtruth
         if model.reduction_factor > 1:

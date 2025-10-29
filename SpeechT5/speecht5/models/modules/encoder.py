@@ -156,6 +156,7 @@ class TransformerEncoder(FairseqEncoder):
         self,
         encoder_in,
         encoder_padding_mask,
+        residual_matrix_len: int = 0,
         return_all_hiddens: bool = False,
         tgt_layer=None,
         extra_encoder_in=None,
@@ -191,7 +192,7 @@ class TransformerEncoder(FairseqEncoder):
             ft = True
         with torch.no_grad() if not ft else contextlib.ExitStack():
             encoder_out = self.forward_scriptable(
-                encoder_in, encoder_padding_mask, return_all_hiddens, tgt_layer=tgt_layer,
+                encoder_in, encoder_padding_mask, residual_matrix_len, return_all_hiddens, tgt_layer=tgt_layer,
             )
 
         # CTC and bert
@@ -214,6 +215,7 @@ class TransformerEncoder(FairseqEncoder):
         self,
         encoder_in,
         encoder_padding_mask,
+        residual_matrix_len: int = 0,
         return_all_hiddens: bool = False,
         tgt_layer=None,
     ):
@@ -311,6 +313,8 @@ class TransformerEncoder(FairseqEncoder):
         # The empty list is equivalent to None.
         return {
             "encoder_out": [x],  # T x B x C
+            "encoder_out_residual": [x[:residual_matrix_len]],  # residual_matrix_len x B x C
+            "encoder_out_info": [x[residual_matrix_len:]],  # (T - residual_matrix_len) x B x C
             "encoder_padding_mask": [encoder_padding_mask],  # B x T
             "encoder_states": encoder_states,  # List[T x B x C]
             "src_tokens": [],
@@ -358,6 +362,20 @@ class TransformerEncoder(FairseqEncoder):
             new_decoder_input = [
                 encoder_out["decoder_input"][0].index_select(0, new_order)
             ]
+            
+        if len(encoder_out["encoder_out_residual"]) == 0:
+            new_encoder_out_residual = []
+        else:
+            new_encoder_out_residual = [
+                encoder_out["encoder_out_residual"][0].index_select(1, new_order)
+            ]
+        
+        if len(encoder_out["encoder_out_info"]) == 0:
+            new_encoder_out_info = []
+        else:
+            new_encoder_out_info = [
+                encoder_out["encoder_out_info"][0].index_select(1, new_order)
+            ]
 
         encoder_states = encoder_out["encoder_states"]
         if len(encoder_states) > 0:
@@ -366,6 +384,8 @@ class TransformerEncoder(FairseqEncoder):
 
         return {
             "encoder_out": new_encoder_out,  # T x B x C
+            "encoder_out_residual": new_encoder_out_residual,  # residual_matrix_len x B x C
+            "encoder_out_info": new_encoder_out_info,  # (T - residual_matrix_len) x B x C
             "encoder_padding_mask": new_encoder_padding_mask,  # B x T
             "encoder_states": encoder_states,  # List[T x B x C]
             "src_tokens": src_tokens,  # B x T
