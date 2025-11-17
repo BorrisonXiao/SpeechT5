@@ -33,15 +33,6 @@ def train_dev_split(
     """
     Split the raw text data into training and development sets.
     """
-    texts = []
-    with open(data, "r") as f:
-        lines = f.readlines()
-    for line in lines:
-        # Remove the empty lines
-        line = line.strip()
-        if line:
-            texts.append(line)
-
     dictionary = None
     if dict_path is not None:
         # Load and parse the dictionary if given
@@ -53,6 +44,18 @@ def train_dev_split(
             if line:
                 key, value = line.split()
                 dictionary[key] = value
+
+    texts = []
+    with open(data, "r") as f:
+        lines = f.readlines()
+    for line in lines:
+        # Remove the empty lines
+        line = line.strip()
+        if line:
+            if sanitize:
+                texts.append(clean_text(line, dictionary))
+            else:
+                texts.append(line)
 
     # If merge_style is specified, merge the texts
     if merge_style is not None:

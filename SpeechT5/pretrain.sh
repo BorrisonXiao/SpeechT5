@@ -1,25 +1,9 @@
 #!/usr/bin/env bash
-#
-#SBATCH --job-name=pretrain
-#SBATCH --nodes=1
-#SBATCH --gpus=1
-#SBATCH --ntasks=1
-#SBATCH --cpus-per-task=8
-#SBATCH --partition=gpu-a100
-#SBATCH --account=highprio
-#SBATCH --time=480:00:00
-#SBATCH --output=logs/v2/pretrain_v2/%j.out
 
-module purge
-module load conda
-module load cuda/12.4
-/bin/hostname
 nvidia-smi
 nvcc --version
 
-conda deactivate && conda deactivate
 . $(conda info --base)/etc/profile.d/conda.sh && conda deactivate && conda activate mult5
-export LD_LIBRARY_PATH=$HOME/research/discrete/espnet_meili/tools/miniconda/envs/mult5/lib/python3.9/site-packages/nvidia/nvjitlink/lib:$LD_LIBRARY_PATH
 export PYTHONPATH=$PYTHONPATH:$PWD/fairseq
 # Forces all CUDA operations to execute in order and completely finish before moving forward.
 export CUDA_LAUNCH_BLOCKING=1
@@ -63,7 +47,7 @@ log() {
 }
 
 data_dir=data
-expdir=exp_v2
+expdir=exp
 
 stage=1
 stop_stage=1
@@ -73,12 +57,12 @@ lab_dir=${data_dir}/hubert_km_labels
 if [ $stage -le 1 ] && [ $stop_stage -ge 1 ]; then
     log "Stage 1: Run the pre-training script..."
     JOBID=$(date +%Y%m%d%H%M%S)
-    JOBID=debug
+    # JOBID=debug
     DATA_ROOT=${data_dir}/pretrain
     SAVE_DIR=${expdir}/pretrain/${JOBID}
     LABEL_DIR=${lab_dir}
-    TRAIN_SET="speech_valid|text_valid"
-    # TRAIN_SET="speech_train|text_train"
+    # TRAIN_SET="speech_valid|text_valid"
+    TRAIN_SET="speech_train|text_train"
     VALID_SET="speech_valid|text_valid"
 
     mkdir -p ${SAVE_DIR}
@@ -89,7 +73,7 @@ if [ $stage -le 1 ] && [ $stop_stage -ge 1 ]; then
         --train-subset ${TRAIN_SET} \
         --valid-subset ${VALID_SET} \
         --hubert-label-dir ${LABEL_DIR} \
-        --distributed-world-size 1 \
+        --distributed-world-size 8 \
         --distributed-port 0 \
         --ddp-backend pytorch_ddp \
         --user-dir speecht5 \
@@ -106,15 +90,15 @@ if [ $stage -le 1 ] && [ $stop_stage -ge 1 ]; then
         --random-crop \
         \
         --num-workers 0 \
-        --max-tokens 10000000 \
-        --residual-matrix-len 512 \
-        --batch-size 20 \
+        --max-tokens 1200000 \
+        --max-sentences 36 \
+        --sync-matrix-len 512 \
         --batch-size-valid 40 \
-        --max-speech-sample-size 320000 \
+        --max-speech-sample-size 250000 \
         --mel-hop-scale 2 \
         --pad-audio \
-        --update-freq 2 \
-        --batch-ratio "[1,0.0048]" \
+        --update-freq 1 \
+        --batch-ratio "[1,0.0086]" \
         \
         --criterion speecht5 \
         --optimizer adam \
@@ -127,10 +111,10 @@ if [ $stage -le 1 ] && [ $stop_stage -ge 1 ]; then
         --lr 0.0002 \
         --lr-scheduler polynomial_decay \
         \
-        --max-update 100000 \
-        --warmup-updates 10000 \
-        --total-num-update 100000 \
-        --save-interval-updates 1000 \
+        --max-update 200000 \
+        --warmup-updates 20000 \
+        --total-num-update 200000 \
+        --save-interval-updates 5000 \
         --log-interval 10 \
         --skip-invalid-size-inputs-valid-test \
         --required-batch-size-multiple 1 \
@@ -138,9 +122,6 @@ if [ $stage -le 1 ] && [ $stop_stage -ge 1 ]; then
         \
         --arch t5_transformer_base \
         --encoder-speech-prenet mel \
-        --encoder-layers 12 \
-        --speech-prenet-encoder-layers 12 \
-        --text-prenet-encoder-layers 6 \
         --share-input-output-embed \
         --find-unused-parameters \
         --bert-init \
@@ -148,8 +129,8 @@ if [ $stage -le 1 ] && [ $stop_stage -ge 1 ]; then
         --use-codebook \
         --codebook-prob 0.2 \
         --loss-weights="[10,0.1]" \
-        --max-text-positions 999 \
-        --clear-cache-threshold 71680
+        --max-text-positions 600 \
+        --clear-cache-threshold 35840
 fi
 
 # print(torch.cuda.memory_summary())

@@ -73,12 +73,12 @@ class T5TransformerModel(FairseqEncoderDecoderModel):
         
         # Add modality vectors, 0 for text and 1 for speech
         self.modality_vectors = torch.nn.Embedding(2, args.encoder_embed_dim)
-        # Add the residual matrix
-        self.residual_matrix = torch.nn.Parameter(
-            torch.empty(args.residual_matrix_len, args.encoder_embed_dim)
+        # Add the synchronization matrix
+        self.sync_matrix = torch.nn.Parameter(
+            torch.empty(args.sync_matrix_len, args.encoder_embed_dim)
         )
-        torch.nn.init.xavier_uniform_(self.residual_matrix)
-        self.residual_matrix_len = args.residual_matrix_len
+        torch.nn.init.xavier_uniform_(self.sync_matrix)
+        self.sync_matrix_len = args.sync_matrix_len
         # # Add the residual vector
         # self.residual_vector = torch.nn.Parameter(torch.randn(args.encoder_embed_dim))
         # Here we set the padding index to be an impossible value since we want to apply
@@ -86,7 +86,7 @@ class T5TransformerModel(FairseqEncoderDecoderModel):
         self.encoder_embed_positions = PositionalEmbedding(
             args.max_speech_positions, args.encoder_embed_dim, -1
         )
-        self.residual_matrix_len = args.residual_matrix_len
+        self.sync_matrix_len = args.sync_matrix_len
         
         self.clear_cache_threshold = args.clear_cache_threshold
         self.clear_cache_verbose = CLEAR_CACHE_VERBOSE
@@ -668,10 +668,10 @@ class T5TransformerModel(FairseqEncoderDecoderModel):
             "shared_only - use shared encoder output features only",
         )
         parser.add_argument(
-            "--residual-matrix-len",
+            "--sync-matrix-len",
             type=int,
             metavar="N",
-            help="length of residual matrix to be added to encoder input",
+            help="length of sync matrix to be added to encoder input",
         )
         parser.add_argument(
             "--text-prenet-encoder-layers",
@@ -850,23 +850,28 @@ class T5TransformerModel(FairseqEncoderDecoderModel):
 
         return extra_losses, names
     
-    def forward_residual(self, encoder_input, encoder_padding_mask, input_type='speech'):
+    def forward_sync(self, encoder_input, encoder_padding_mask, sync_matrix, input_type='speech'):
         """
-        Adds the residual vectors to the encoder input.
+        Adds the synchronization vectors to the encoder input.
         Args:
-            encoder_input: The original encoder output.
-            encoder_padding_mask: The original encoder padding mask.
+            encoder_input: The original encoder output with shape (B, T, C).
+            encoder_padding_mask: The original encoder padding mask with shape (B, T).
+            sync_matrix: The synchronization matrix with shape (sync_matrix_len, C).
+            input_type: 'speech' or 'text'
+        Returns:
+            encoder_input: The modified encoder input with synchronization vectors added, shape (B, T + sync_matrix_len, C).
+            encoder_padding_mask: The modified encoder padding mask with synchronization vectors added, shape (B, T + sync_matrix_len).
         """
         batch_size = encoder_input.size(0)
-        residual_expanded = self.residual_matrix.unsqueeze(0)
-        residual_expanded = residual_expanded.expand(batch_size, -1, -1)
-        encoder_input = torch.cat([residual_expanded, encoder_input], dim=1)
+        sync_expanded = sync_matrix.unsqueeze(0)
+        sync_expanded = sync_expanded.expand(batch_size, -1, -1)
+        encoder_input = torch.cat([sync_expanded, encoder_input], dim=1)
         
         # Pad the encoder padding mask with ones
-        pad_mask = torch.zeros(encoder_padding_mask.size(0), self.residual_matrix_len, dtype=torch.bool, device=encoder_padding_mask.device)
+        pad_mask = torch.zeros(encoder_padding_mask.size(0), self.sync_matrix_len, dtype=torch.bool, device=encoder_padding_mask.device)
         encoder_padding_mask = torch.cat([encoder_padding_mask, pad_mask], dim=1)
         
-        # Add the positional encoding to the residual matrix
+        # Add the positional encoding to the synchronization matrix
         encoder_input = encoder_input + self.encoder_embed_positions(encoder_padding_mask)
         
         # Add the modality vector to the shared-encoder's input
@@ -879,7 +884,7 @@ class T5TransformerModel(FairseqEncoderDecoderModel):
         # encoder_input = torch.where(_mask, self.residual_vector, encoder_input)
 
         # # Concatenate the encoder input with residual vectors up to the encoder sequence length
-        # diff = self.residual_matrix_len - encoder_input.size(1)
+        # diff = self.sync_matrix_len - encoder_input.size(1)
         # if diff > 0:
         #     # Pad the encoder input with the residual vector
         #     pad = self.residual_vector.unsqueeze(0).expand(encoder_input.size(0), diff, -1)
@@ -889,11 +894,11 @@ class T5TransformerModel(FairseqEncoderDecoderModel):
         #     encoder_padding_mask = torch.cat([encoder_padding_mask, pad_mask], dim=1)
         # elif diff < 0:
         #     # Send out a warning if the encoder input is longer than the encoder sequence length
-        #     logger.warning(f"Encoder input {encoder_input.size(1)} is longer than the encoder sequence length. Truncating the encoder input to {self.residual_matrix_len}.")
+        #     logger.warning(f"Encoder input {encoder_input.size(1)} is longer than the encoder sequence length. Truncating the encoder input to {self.sync_matrix_len}.")
         #     # Truncate the encoder input to the encoder sequence length
-        #     encoder_input = encoder_input[:, :self.residual_matrix_len, :]
+        #     encoder_input = encoder_input[:, :self.sync_matrix_len, :]
         #     # Truncate the encoder padding mask to the encoder sequence length
-        #     encoder_padding_mask = encoder_padding_mask[:, :self.residual_matrix_len]
+        #     encoder_padding_mask = encoder_padding_mask[:, :self.sync_matrix_len]
 
         # # Add the residual vector to the encoder input
         # positions = self.encoder_embed_positions(encoder_padding_mask)
@@ -962,14 +967,14 @@ class T5TransformerModel(FairseqEncoderDecoderModel):
             hubert_padding_mask = encoder_padding_mask.clone()
 
         # Pad the features with a pad embedding and re-add the positional encoding
-        if self.residual_matrix_len is not None:
-            encoder_input, encoder_padding_mask = self.forward_residual(encoder_input, encoder_padding_mask, input_type=input_type)
+        if self.sync_matrix_len is not None:
+            encoder_input, encoder_padding_mask = self.forward_sync(encoder_input, encoder_padding_mask, self.sync_matrix, input_type=input_type)
             # # First replace the padded tokens/features with the residual vector, that is everywhere the encoder_padding_mask is True
             # _mask = encoder_padding_mask.bool().unsqueeze(-1).expand_as(encoder_input)
             # encoder_input = torch.where(_mask, self.residual_vector, encoder_input)
 
             # # Concatenate the encoder input with residual vectors up to the encoder sequence length
-            # diff = self.residual_matrix_len - encoder_input.size(1)
+            # diff = self.sync_matrix_len - encoder_input.size(1)
             # if diff > 0:
             #     # Pad the encoder input with the residual vector
             #     pad = self.residual_vector.unsqueeze(0).expand(encoder_input.size(0), diff, -1)
@@ -979,11 +984,11 @@ class T5TransformerModel(FairseqEncoderDecoderModel):
             #     encoder_padding_mask = torch.cat([encoder_padding_mask, pad_mask], dim=1)
             # elif diff < 0:
             #     # Send out a warning if the encoder input is longer than the encoder sequence length
-            #     logger.warning(f"Encoder input is longer than the encoder sequence length. Truncating the encoder input to {self.residual_matrix_len}.")
+            #     logger.warning(f"Encoder input is longer than the encoder sequence length. Truncating the encoder input to {self.sync_matrix_len}.")
             #     # Truncate the encoder input to the encoder sequence length
-            #     encoder_input = encoder_input[:, :self.residual_matrix_len, :]
+            #     encoder_input = encoder_input[:, :self.sync_matrix_len, :]
             #     # Truncate the encoder padding mask to the encoder sequence length
-            #     encoder_padding_mask = encoder_padding_mask[:, :self.residual_matrix_len]
+            #     encoder_padding_mask = encoder_padding_mask[:, :self.sync_matrix_len]
 
             # # Add the residual vector to the encoder input
             # positions = self.encoder_embed_positions(encoder_padding_mask)
@@ -999,7 +1004,7 @@ class T5TransformerModel(FairseqEncoderDecoderModel):
         encoder_output = self.encoder(
             encoder_input, encoder_padding_mask,
             tgt_layer=tgt_enc_layer,
-            residual_matrix_len=self.residual_matrix_len,
+            sync_matrix_len=self.sync_matrix_len,
             extra_encoder_in=hubert_encoder_input if input_type == 'speech' else None,
             extra_encoder_padding_mask=hubert_padding_mask if input_type == 'speech' else None,
         )
@@ -1050,7 +1055,7 @@ class T5TransformerModel(FairseqEncoderDecoderModel):
             # Sample indexs according to the codebook prob
             random_idx = torch.randperm(q["x"].size(1))[:int(q["x"].size(1) * self.codebook_prob)]
             # Remove all indices that belongs to the information part
-            random_idx = random_idx[random_idx < self.residual_matrix_len]
+            random_idx = random_idx[random_idx < self.sync_matrix_len]
             # Make weight for q
             q_w = q["x"].new_zeros(q["x"].size(1))
             q_w[random_idx] = 1.0
@@ -1061,7 +1066,7 @@ class T5TransformerModel(FairseqEncoderDecoderModel):
             
             if task_name is not None and (task_name == "speech_pretrain" or task_name == "text_pretrain"):
                 # Cihan: Here we update the residual part of the encoder output for pretraining tasks
-                encoder_output["encoder_out_residual"] = encoder_output["encoder_out"][0][:self.residual_matrix_len, :, :]
+                encoder_output["encoder_out_residual"] = encoder_output["encoder_out"][0][:self.sync_matrix_len, :, :]
 
             # encoder_output["encoder_out"][0] = q["x"].transpose(0, 1)
             if output_type == 'speech':
@@ -1134,8 +1139,8 @@ class T5TransformerModel(FairseqEncoderDecoderModel):
         #         encoder_output["encoder_padding_mask"] = [hubert_padding_mask]
         if task_name is not None and (task_name == "speech_pretrain" or task_name == "text_pretrain"):
             # Use the residual part of the encoder output as the input of the decoder
-            encoder_output["encoder_out"] = [encoder_output["encoder_out_residual"]]
-            encoder_output["encoder_padding_mask"][0] = encoder_output["encoder_padding_mask"][0][:, :self.residual_matrix_len] # Should be just zeros
+            encoder_output["encoder_out"] = encoder_output["encoder_out_sync"]
+            encoder_output["encoder_padding_mask"][0] = encoder_output["encoder_padding_mask"][0][:, :self.sync_matrix_len] # Should be just zeros
         
         decoder_output, extra = self.decoder(prev_output_tokens, tgt_mask, encoder_output, 
                                              full_context_alignment=getattr(self.args, "decoder_full_context_alignment", False), 
@@ -1354,15 +1359,15 @@ class T5TransformerModel(FairseqEncoderDecoderModel):
     def forward_encoder(self, source, padding_mask=None):
         # Encoder Prenet
         encoder_input, encoder_padding_mask = self.speech_encoder_prenet(source, padding_mask=padding_mask, mask=False)
-        if self.residual_matrix_len is not None:
+        if self.sync_matrix_len is not None:
             orginal_encoder_input = encoder_input
             orginal_encoder_padding_mask = encoder_padding_mask
-            encoder_input, encoder_padding_mask = self.forward_residual(encoder_input, encoder_padding_mask, input_type='speech')
+            encoder_input, encoder_padding_mask = self.forward_sync(encoder_input, encoder_padding_mask, self.sync_matrix, input_type='speech')
             # Encoder
             encoder_output = self.encoder(
                 encoder_input,
                 encoder_padding_mask,
-                residual_matrix_len=self.residual_matrix_len,
+                sync_matrix_len=self.sync_matrix_len,
                 extra_encoder_in=orginal_encoder_input,
                 extra_encoder_padding_mask=orginal_encoder_padding_mask,
             )
@@ -1395,13 +1400,13 @@ class T5TransformerModel(FairseqEncoderDecoderModel):
         original_encoder_padding_mask = encoder_padding_mask
 
         # Encoder
-        if self.residual_matrix_len is not None:
-            encoder_input, encoder_padding_mask = self.forward_residual(encoder_input, encoder_padding_mask, input_type='text')
+        if self.sync_matrix_len is not None:
+            encoder_input, encoder_padding_mask = self.forward_sync(encoder_input, encoder_padding_mask, self.sync_matrix, input_type='text')
             # Encoder
             encoder_output = self.encoder(
                 encoder_input,
                 encoder_padding_mask,
-                residual_matrix_len=self.residual_matrix_len,
+                sync_matrix_len=self.sync_matrix_len,
             )
         else:
             encoder_output = self.encoder(encoder_input, encoder_padding_mask)

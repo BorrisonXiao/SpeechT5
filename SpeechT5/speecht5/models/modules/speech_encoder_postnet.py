@@ -67,7 +67,7 @@ class SpeechEncoderPostnet(nn.Module):
 
     #     return logits
     
-    def compute_nce(self, x, pos, negs, chunk_size=512):
+    def compute_nce(self, x, pos, negs, chunk_size=64):
         """
         Process instances in chunks to reduce memory fragmentation.
         Args:

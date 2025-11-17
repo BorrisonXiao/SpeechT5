@@ -13,18 +13,18 @@ ckpt_dir=models
 n_cluster=500 # Default is 500 from the SpeechT5 paper
 km_path=${data_dir}/kmeans_model.pt
 lm_data_dir=${data_dir}/raw/librispeech-lm-corpus
-spm_dir=${ckpt_dir}/self_trained
-vocab_size=3000
-spm_model=${spm_dir}/spm_bpe_${vocab_size}.model
+spm_dir=${ckpt_dir}
+# vocab_size=3000
+spm_model=${spm_dir}/spm_char.model
 train_split=0.98
-org_data_dir=/export/fs05/cxiao7/LibriSpeech
-xvector_dir=/home/cxiao7/research/mult5/SpeechT5/SpeechT5/data/xvectors.zip
-train_spm=true
-dict_path=
+org_data_dir=/home/ec2-user/LibriSpeech
+xvector_dir=${data_dir}/xvectors.zip
+train_spm=false
+dict_path=${spm_dir}/dict.txt
 max_token_len=1249
 
-stage=0
-stop_stage=0
+stage=5
+stop_stage=5
 
 train_sets="train-clean-100 train-clean-360 train-other-500"
 dev_sets="dev-clean dev-other"
@@ -52,23 +52,21 @@ if [ $stage -le 0 ] && [ $stop_stage -ge 0 ]; then
     #     # Create a proxy directory for the split
     #     ln -sfv ${org_data_dir}/${split} ${tsv_dir}/raw/valid
     # done
-    # ln -sfv ${xvector_dir} ${tsv_dir}/raw/valid
+    # cp ${xvector_dir} ${tsv_dir}/raw/valid
     # python fairseq/examples/wav2vec/wav2vec_manifest.py ${tsv_dir}/raw/valid --dest ${tsv_dir}/valid --ext flac --valid-percent 0
     # # Rename the file for training
     # cp ${tsv_dir}/valid/train.tsv ${tsv_dir}/speech_valid.tsv
 
-    set -x
-    # Process the test set
-    for split in ${test_sets}; do
-        # Create a proxy directory for the split
-        mkdir -p ${tsv_dir}/raw/test/${split}
-        ln -sfv ${org_data_dir}/${split}/* ${tsv_dir}/raw/test/${split}
-        python fairseq/examples/wav2vec/wav2vec_manifest.py ${tsv_dir}/raw/test/${split} --dest ${tsv_dir}/test/${split} --ext flac --valid-percent 0
-        # Rename the file
-        cp ${tsv_dir}/test/${split}/train.tsv ${tsv_dir}/${split}.tsv
-        ln -sfv ${xvector_dir} ${tsv_dir}/raw/test/${split}
-    done
-    # ln -sfv ${xvector_dir} ${tsv_dir}/raw/test
+    # # Process the test set
+    # for split in ${test_sets}; do
+    #     # Create a proxy directory for the split
+    #     mkdir -p ${tsv_dir}/raw/test/${split}
+    #     ln -sfv ${org_data_dir}/${split}/* ${tsv_dir}/raw/test/${split}
+    #     python fairseq/examples/wav2vec/wav2vec_manifest.py ${tsv_dir}/raw/test/${split} --dest ${tsv_dir}/test/${split} --ext flac --valid-percent 0
+    #     # Rename the file
+    #     cp ${tsv_dir}/test/${split}/train.tsv ${tsv_dir}/${split}.tsv
+    #     cp ${xvector_dir} ${tsv_dir}/raw/test/${split}
+    # done
 
     # # Process the training set
     # for split in ${train_sets}; do
@@ -78,19 +76,23 @@ if [ $stage -le 0 ] && [ $stop_stage -ge 0 ]; then
     # ln -sfv ${org_data_dir} ${tsv_dir}/raw/train
     # python fairseq/examples/wav2vec/wav2vec_manifest.py ${tsv_dir}/raw/train --dest ${tsv_dir}/train --ext flac --valid-percent 0
     # # Rename the file for training
+    # cp ${xvector_dir} ${tsv_dir}/raw/train
     # cp ${tsv_dir}/train/train.tsv ${tsv_dir}/speech_train.tsv
 
     # Add speaker embedding to the last column
-    # for split in "speech_train" "speech_valid"; do
-    for split in "test-clean"; do
+    # for split in "speech_train" "speech_valid" ${test_sets}; do
+    for split in "speech_train" ${test_sets}; do
+    # for split in "test-clean"; do
         python scripts/integrate_spkembs.py \
             -i ${tsv_dir}/${split}.tsv \
             --dset librispeech \
             --xvectors ${data_dir}/xvectors.zip \
             -o ${tsv_dir}/${split}_spk.tsv
 
-    #     # Generate the hubert features
-    #     python fairseq/examples/hubert/simple_kmeans/dump_hubert_feature.py ${tsv_dir} ${split} ${ckpt_path} ${layer} ${nshard} ${rank} ${feat_dir}
+        # Generate the hubert features if it's not the test set
+        if [ ${split} = "speech_train" ] || [ ${split} = "speech_valid" ]; then
+            python fairseq/examples/hubert/simple_kmeans/dump_hubert_feature.py ${tsv_dir} ${split} ${ckpt_path} ${layer} ${nshard} ${rank} ${feat_dir}
+        fi
     done
 fi
 
@@ -110,8 +112,8 @@ if [ $stage -le 2 ] && [ $stop_stage -ge 2 ]; then
     log "Stage 2: Assign cluster IDs to the HuBERT features..."
     rank=0
     set -x
-    for split in "speech_train"; do
-    # for split in "speech_train" "speech_valid"; do
+    # for split in "speech_train"; do
+    for split in "speech_train" "speech_valid"; do
         python fairseq/examples/hubert/simple_kmeans/dump_km_label.py ${feat_dir} ${split} ${km_path} ${nshard} ${rank} ${lab_dir}
         for rank in $(seq 0 $((nshard - 1))); do
             cat $lab_dir/${split}_${rank}_${nshard}.km
@@ -127,32 +129,21 @@ fi
 if [ $stage -le 3 ] && [ $stop_stage -ge 3 ]; then
     log "Stage 3: Prepare the text data..."
     mkdir -p ${text_dir}
-    # Step 1: Dump the lowercased text data to a single txt file
+    # Step 1: Dump the text data to a single txt file
     # Combine all .txt files recursively into a single file
-    find ${lm_data_dir}/corpus -type f -name "*.txt" -exec cat {} + >${text_dir}/tmp.txt
-
-    # Convert the combined file to lowercase
-    tr '[:upper:]' '[:lower:]' <${text_dir}/tmp.txt >${text_dir}/tmp2.txt
-
-    # Remove blank lines from the file
-    grep -v '^$' ${text_dir}/tmp2.txt >${text_dir}/text
-
-    # Optional: Remove the intermediate file if not needed
-    rm ${text_dir}/tmp.txt
-    rm ${text_dir}/tmp2.txt
+    find ${lm_data_dir}/corpus -type f -name "*.txt" -exec cat {} + >${text_dir}/text
 fi
 
 if [ $stage -le 4 ] && [ $stop_stage -ge 4 ]; then
     log "Stage 4: Prepare the text data..."
     # Perform train/dev split of the text data, also remove the empty lines
+    # TODO: Do not do merging anymore
     # python scripts/train_dev_split.py \
     #     -i ${text_dir}/text \
     #     -o ${text_dir} \
-    #     --merge-style "gaussian" \
     #     --sanitize \
     #     --dict ${ckpt_dir}/dict.txt \
-    #     --ratio ${train_split} \
-    #     --merge-params "400|50"
+    #     --ratio ${train_split}
 
     # Train a SPM tokenizer on the text data if train_spm is set to true
     # if [ $train_spm = true ]; then
@@ -168,9 +159,9 @@ if [ $stage -le 4 ] && [ $stop_stage -ge 4 ]; then
     # fi
 
     # Tokenize the text data
-    for split in "text_train" "text_valid"; do
-        python /home/cxiao7/research/mult5/SpeechT5/SpeechT5/fairseq/scripts/spm_encode.py \
-            --model ${spm_model}.model \
+    for split in "text_valid"; do
+        python fairseq/scripts/spm_encode.py \
+            --model ${spm_model} \
             --output_format=piece \
             --inputs ${text_dir}/${split}.txt \
             --outputs ${text_dir}/${split}.token \
@@ -212,15 +203,15 @@ fi
 
 if [ $stage -le 6 ] && [ $stop_stage -ge 6 ]; then
     log "Stage 6: Prepare the ASR data for fine-tuning..."
-    for split in "speech_train"; do
+    for split in "speech_train" "speech_valid" ${test_sets}; do
     # for split in "speech_valid"; do
     # for split in ${test_sets}; do
         # Generate the word-level labels
         python fairseq/examples/wav2vec/libri_labels.py ${tsv_dir}/${split}.tsv --output-dir ${tsv_dir} --output-name ${split}
         # Lowercase the labels due to the pre-trained tokenizer
-        scripts/lowercase_text.py \
-            -i ${tsv_dir}/${split}.wrd \
-            -o ${tsv_dir}/${split}.lc.wrd
+        # scripts/lowercase_text.py \
+        #     -i ${tsv_dir}/${split}.wrd \
+        #     -o ${tsv_dir}/${split}.lc.wrd
     done
 fi
 
@@ -231,6 +222,7 @@ if [ $stage -le 7 ] && [ $stop_stage -ge 7 ]; then
     mkdir -p ${pretrain_data_dir}
 
     # Link the text and speech pretrain data
+    ln -sfv ${PWD}/${text_dir}/bins/dict.txt ${PWD}/${pretrain_data_dir}/dict.txt
     ln -sfv ${PWD}/${text_dir}/bins/text_train.* ${PWD}/${pretrain_data_dir}
     ln -sfv ${PWD}/${text_dir}/bins/text_valid.* ${PWD}/${pretrain_data_dir}
     ln -sfv ${PWD}/${tsv_dir}/speech_valid_spk.tsv ${PWD}/${pretrain_data_dir}/speech_valid.tsv
@@ -249,10 +241,10 @@ if [ $stage -le 8 ] && [ $stop_stage -ge 8 ]; then
     ln -sfv ${PWD}/${text_dir}/bins/text_valid.* ${PWD}/${asr_data_dir}
     ln -sfv ${PWD}/${tsv_dir}/speech_valid_spk.tsv ${PWD}/${asr_data_dir}/speech_valid.tsv
     ln -sfv ${PWD}/${tsv_dir}/speech_train_spk.tsv ${PWD}/${asr_data_dir}/speech_train.tsv
-    ln -sfv ${PWD}/${tsv_dir}/speech_valid.lc.wrd ${PWD}/${asr_data_dir}/speech_valid.txt
-    ln -sfv ${PWD}/${tsv_dir}/speech_train.lc.wrd ${PWD}/${asr_data_dir}/speech_train.txt
+    ln -sfv ${PWD}/${tsv_dir}/speech_valid.ltr ${PWD}/${asr_data_dir}/speech_valid.txt
+    ln -sfv ${PWD}/${tsv_dir}/speech_train.ltr ${PWD}/${asr_data_dir}/speech_train.txt
     for split in ${test_sets}; do
-        ln -sfv ${PWD}/${tsv_dir}/${split}.lc.wrd ${PWD}/${asr_data_dir}/${split}.txt
+        ln -sfv ${PWD}/${tsv_dir}/${split}.ltr ${PWD}/${asr_data_dir}/${split}.txt
         ln -sfv ${PWD}/${tsv_dir}/${split}.tsv ${PWD}/${asr_data_dir}/${split}.tsv
     done
 fi

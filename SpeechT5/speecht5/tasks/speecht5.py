@@ -290,7 +290,7 @@ class SpeechT5Task(LegacyFairseqTask):
         parser.add_argument(
             "--speech-prenet-encoder-layers",
             type=int,
-            default=4,
+            default=0,
             help="speech prenet encoder layers",
         )
         parser.add_argument(
