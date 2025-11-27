@@ -13,7 +13,8 @@ import torch
 import contextlib
 
 from fairseq.modules.quant_noise import quant_noise as apply_quant_noise_
-from fairseq.models.transformer import Linear, LayerNorm
+from fairseq.models.transformer import Linear
+from fairseq.modules import LayerNorm
 from fairseq.modules import (
     PositionalEmbedding,
     FairseqDropout,

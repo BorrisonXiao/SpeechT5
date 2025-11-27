@@ -24,7 +24,7 @@ from fairseq.modules import (
 )
 from torch import Tensor
 from .transformer_layer import TransformerSentenceEncoderLayer
-
+from fairseq.modules.checkpoint_activations import checkpoint_wrapper
 
 
 DEFAULT_MIN_PARAMS_TO_WRAP = int(1e8)
@@ -129,14 +129,28 @@ class TransformerEncoder(FairseqEncoder):
             )
         else:
             layer = TransformerEncoderLayer(args)
+
+        checkpoint = getattr(args, "gradient_checkpointing", False)
+        if checkpoint:
+            use_pytorch_checkpoint = args.ddp_backend == "pytorch_ddp"
+            offload_to_cpu = getattr(args, "cpu_offload", False)
+            # use_reentrant must be False to enable DDP with checkpointing
+            layer = checkpoint_wrapper(
+                layer,
+                use_pytorch_checkpoint=use_pytorch_checkpoint,
+                use_reentrant=False,
+                offload_to_cpu=offload_to_cpu,
+            )
         return layer
 
     def forward(
         self,
         encoder_in,
         encoder_padding_mask,
+        sync_matrix_len: int = 0,
         return_all_hiddens: bool = False,
         tgt_layer=None,
+        extra_encoder_padding_mask=None,
     ):
         """
         Args:
@@ -167,16 +181,19 @@ class TransformerEncoder(FairseqEncoder):
             ft = True
         with torch.no_grad() if not ft else contextlib.ExitStack():
             encoder_out = self.forward_scriptable(
-                encoder_in, encoder_padding_mask, return_all_hiddens, tgt_layer=tgt_layer,
+                encoder_in, encoder_padding_mask, sync_matrix_len, return_all_hiddens, tgt_layer=tgt_layer,
             )
 
         # CTC and bert
         if self.proj:
-            x_for_ctc = self.proj(self.dropout_module(encoder_out["encoder_out"][0]))
+            x_for_ctc = self.proj(self.dropout_module(encoder_out["encoder_out_info"][0]))
         else:
             x_for_ctc = None
 
         encoder_out["encoder_out_for_ctc"] = [x_for_ctc] # T x B x C
+        if extra_encoder_padding_mask is not None:
+            encoder_out["extra_encoder_padding_mask"] = [extra_encoder_padding_mask]
+
 
         return encoder_out
 
@@ -188,6 +205,7 @@ class TransformerEncoder(FairseqEncoder):
         self,
         encoder_in,
         encoder_padding_mask,
+        sync_matrix_len: int = 0,
         return_all_hiddens: bool = False,
         tgt_layer=None,
     ):
@@ -284,6 +302,8 @@ class TransformerEncoder(FairseqEncoder):
         # The empty list is equivalent to None.
         return {
             "encoder_out": [x],  # T x B x C
+            "encoder_out_sync": [x[:sync_matrix_len]],  # sync_matrix_len x B x C
+            "encoder_out_info": [x[sync_matrix_len:]],  # (T - sync_matrix_len) x B x C
             "encoder_padding_mask": [encoder_padding_mask],  # B x T
             "encoder_states": encoder_states,  # List[T x B x C]
             "src_tokens": [],
@@ -331,6 +351,20 @@ class TransformerEncoder(FairseqEncoder):
                 encoder_out["decoder_input"][0].index_select(0, new_order)
             ]
 
+        if len(encoder_out["encoder_out_sync"]) == 0:
+            new_encoder_out_sync = []
+        else:
+            new_encoder_out_sync = [
+                encoder_out["encoder_out_sync"][0].index_select(1, new_order)
+            ]
+
+        if len(encoder_out["encoder_out_info"]) == 0:
+            new_encoder_out_info = []
+        else:
+            new_encoder_out_info = [
+                encoder_out["encoder_out_info"][0].index_select(1, new_order)
+            ]
+
         encoder_states = encoder_out["encoder_states"]
         if len(encoder_states) > 0:
             for idx, state in enumerate(encoder_states):
@@ -338,6 +372,8 @@ class TransformerEncoder(FairseqEncoder):
 
         return {
             "encoder_out": new_encoder_out,  # T x B x C
+            "encoder_out_sync": new_encoder_out_sync,  # sync_matrix_len x B x C
+            "encoder_out_info": new_encoder_out_info,  # (T - sync_matrix_len) x B x C
             "encoder_padding_mask": new_encoder_padding_mask,  # B x T
             "encoder_states": encoder_states,  # List[T x B x C]
             "src_tokens": src_tokens,  # B x T

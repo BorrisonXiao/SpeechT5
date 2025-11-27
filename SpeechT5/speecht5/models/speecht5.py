@@ -42,6 +42,7 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_MAX_TEXT_POSITIONS = 450
 DEFAULT_MAX_SPEECH_POSITIONS = 4000
+CLEAR_CACHE_VERBOSE = False
 
 
 @register_model("t5_transformer")
@@ -89,6 +90,21 @@ class T5TransformerModel(FairseqEncoderDecoderModel):
                 self.projection = torch.nn.Linear(
                     args.decoder_embed_dim + self.spk_embed_dim, args.decoder_embed_dim
                 )
+        
+        # Add modality vectors, 0 for text and 1 for speech
+        self.modality_vectors = torch.nn.Embedding(2, args.encoder_embed_dim)
+        # Add the synchronization matrix
+        if args.sync_matrix_len is not None:
+            self.sync_matrix = torch.nn.Parameter(
+                torch.empty(args.sync_matrix_len, args.encoder_embed_dim)
+            )
+            torch.nn.init.xavier_uniform_(self.sync_matrix)
+        else:
+            self.sync_matrix = torch.nn.Identity()
+        self.sync_matrix_len = args.sync_matrix_len
+        
+        self.clear_cache_threshold = args.clear_cache_threshold
+        self.clear_cache_verbose = CLEAR_CACHE_VERBOSE
 
         self.use_codebook = args.use_codebook
         self.codebook_prob = getattr(args, "codebook_prob", 0.5) # args.codebook_prob
@@ -613,6 +629,22 @@ class T5TransformerModel(FairseqEncoderDecoderModel):
             help="which layer's output is used as the input of decoder",
         )
 
+        # mult5
+        parser.add_argument(
+            "--clear-cache-threshold",
+            type=int,
+            default=30720,
+            help="threshold for clearing cache, i.e. torch.cuda.empty_cache() will be called if "
+            "the number of parameters in the model is larger than this value (in MiB)",
+        )
+        parser.add_argument(
+            "--sync-matrix-len",
+            type=int,
+            default=None,
+            metavar="N",
+            help="length of sync matrix to be added to encoder input",
+        )
+
     # Encoder, Decoder
     @classmethod
     def build_encoder(cls, args, dictionary=None, embed_tokens=None):
@@ -783,6 +815,31 @@ class T5TransformerModel(FairseqEncoderDecoderModel):
 
         return extra_losses, names
 
+    def forward_sync(self, encoder_input, encoder_padding_mask, sync_matrix, input_type='speech'):
+        """
+        Adds the synchronization vectors to the encoder input.
+        Args:
+            encoder_input: The original encoder output with shape (B, T, C).
+            encoder_padding_mask: The original encoder padding mask with shape (B, T).
+            sync_matrix: The synchronization matrix with shape (sync_matrix_len, C).
+            input_type: 'speech' or 'text'
+        Returns:
+            encoder_input: The modified encoder input with synchronization vectors added, shape (B, T + sync_matrix_len, C).
+            encoder_padding_mask: The modified encoder padding mask with synchronization vectors added, shape (B, T + sync_matrix_len).
+        """
+        batch_size = encoder_input.size(0)
+        sync_expanded = sync_matrix.unsqueeze(0).repeat(batch_size, 1, 1)
+        encoder_input = torch.cat([sync_expanded, encoder_input], dim=1)
+        
+        # Pad the encoder padding masks
+        pad_mask = torch.zeros(encoder_padding_mask.size(0), self.sync_matrix_len, dtype=torch.bool, device=encoder_padding_mask.device)
+        encoder_padding_mask = torch.cat([encoder_padding_mask, pad_mask], dim=1)
+
+        # Add the modality vector to the shared-encoder's input
+        encoder_input = encoder_input + self.modality_vectors(torch.tensor(input_type == 'speech', dtype=torch.long, device=encoder_input.device))
+        
+        return encoder_input, encoder_padding_mask
+
     def forward(self, source=None, src_tokens=None, src_lengths=None, prev_output_tokens=None, tgt_lengths=None, spkembs=None, target_list=None, task_name=None, padding_mask=None, only_hubert=False, only_ctc=False, feature_only=False, tgt_enc_layer=None, mask=True):
         """
         The forward method inherited from the base class has a **kwargs
@@ -826,9 +883,19 @@ class T5TransformerModel(FairseqEncoderDecoderModel):
                 if getattr(self.args, "sid_encoder_cls", None) == "encoder":
                     prev_output_tokens = torch.zeros_like(prev_output_tokens)
                     encoder_input, encoder_padding_mask = self._integrate_with_speaker_cls(prev_output_tokens, encoder_input, encoder_padding_mask)
+            hubert_padding_mask = encoder_padding_mask.clone()
 
+        if self.sync_matrix_len is not None:
+            encoder_input, encoder_padding_mask = self.forward_sync(encoder_input, encoder_padding_mask, self.sync_matrix, input_type=input_type)
+
+        breakpoint()
         # Encoder: T x B x C
-        encoder_output = self.encoder(encoder_input, encoder_padding_mask, tgt_layer=tgt_enc_layer)
+        encoder_output = self.encoder(
+            encoder_input,
+            encoder_padding_mask,
+            tgt_layer=tgt_enc_layer,
+            sync_matrix_len=self.sync_matrix_len
+        )
 
         if task_name is not None and task_name == 'speech_pretrain' and feature_only:
             return encoder_output["encoder_out"][0].transpose(0, 1)
@@ -843,13 +910,15 @@ class T5TransformerModel(FairseqEncoderDecoderModel):
 
         if target_list is not None:
             hubert_results = self.hubert_layer(
-                encoder_output["encoder_out"][0].transpose(0, 1), 
-                encoder_padding_mask, 
+                encoder_output["encoder_out_info"][0].transpose(0, 1), # B x T x C
+                hubert_padding_mask, 
                 mask_indices, 
                 target_list
             )
 
             hubert_results['features_pen'] = features_pen
+
+        maybe_empty_cache(limit_mib=self.clear_cache_threshold, verbose=self.clear_cache_verbose)
 
         if "decoder_input" in encoder_output and encoder_output["decoder_input"][0] is not None:
             # Change the encoder output to decoder input once set unb-enc-layer
@@ -916,6 +985,8 @@ class T5TransformerModel(FairseqEncoderDecoderModel):
         # SE predict masking to corresponding inputs and source speech replaces the prev_output_tokens as the input of decoder
         if task_name is not None and task_name == "s2s" and getattr(self.args, "se_decoder_input", "previous_target") == "source":
             prev_output_tokens, tgt_mask = self.speech_decoder_prenet(src_tokens, src_lengths)
+
+        maybe_empty_cache(limit_mib=self.clear_cache_threshold, verbose=self.clear_cache_verbose)
 
         # Decoder
         decoder_output, extra = self.decoder(prev_output_tokens, tgt_mask, encoder_output, 
@@ -1049,6 +1120,9 @@ class T5TransformerModel(FairseqEncoderDecoderModel):
             for key in removed_keys:
                 state_dict.pop(key, None)
                 logger.info(f"removed loaded checkpoint: {key}")
+
+        # Cihan: LOAD TOP-LEVEL PARAMETERS FIRST!!
+        super().load_state_dict(state_dict, strict=False)
         for m in self._modules.keys():
             m_state_dict = {
                 key.replace(f"{m}.", ""): value for key, value in state_dict.items() if key.startswith(f"{m}.")
@@ -1133,9 +1207,22 @@ class T5TransformerModel(FairseqEncoderDecoderModel):
     def forward_encoder(self, source, padding_mask=None):
         # Encoder Prenet
         encoder_input, encoder_padding_mask = self.speech_encoder_prenet(source, padding_mask=padding_mask, mask=False)
-
-        # Encoder
-        encoder_output = self.encoder(encoder_input, encoder_padding_mask)
+        if self.sync_matrix_len is not None:
+            orginal_encoder_padding_mask = encoder_padding_mask
+            encoder_input, encoder_padding_mask = self.forward_sync(encoder_input, encoder_padding_mask, self.sync_matrix, input_type='speech')
+            # Encoder
+            encoder_output = self.encoder(
+                encoder_input,
+                encoder_padding_mask,
+                sync_matrix_len=self.sync_matrix_len,
+                extra_encoder_padding_mask=orginal_encoder_padding_mask,
+            )
+        else:
+            # Encoder
+            encoder_output = self.encoder(
+                encoder_input,
+                encoder_padding_mask,
+            )
 
         return encoder_output
 
@@ -1445,3 +1532,13 @@ def t5_transformer_base_asr(args):
     args.mask_channel_selection = getattr(args, "mask_channel_selection", "static")
     args.max_text_positions = getattr(args, "max_text_positions", 600)
     base_architecture(args)
+
+def maybe_empty_cache(limit_mib=71680, verbose=False):  # 30 GiB default
+    reserved_bytes = torch.cuda.memory_reserved()
+    reserved_mib = reserved_bytes / (1024 ** 2)
+    
+    if reserved_mib > limit_mib:
+        if verbose:
+            print(f"[Reserved] {reserved_mib} MiB exceeds limit ({limit_mib} MiB). Calling torch.cuda.empty_cache()...")
+            # print(f"[Action] Exceeds limit ({limit_mib} MiB). Calling torch.cuda.empty_cache()...")
+        torch.cuda.empty_cache()

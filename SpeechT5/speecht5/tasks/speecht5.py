@@ -180,13 +180,13 @@ class SpeechT5Task(LegacyFairseqTask):
             type=float,
             help="shuffle this proportion of sentences in all inputs",
         )
-        parser.add_argument(
-            "--mask-length",
-            default="span-poisson",
-            type=str,
-            choices=["subword", "word", "span-poisson"],
-            help="mask length to choose",
-        )
+        # parser.add_argument(
+        #     "--mask-length",
+        #     default="span-poisson",
+        #     type=str,
+        #     choices=["subword", "word", "span-poisson"],
+        #     help="mask length to choose",
+        # )
         parser.add_argument(
             "--replace-length",
             default=1,
@@ -267,6 +267,11 @@ class SpeechT5Task(LegacyFairseqTask):
             type=float,
             default=0.0,
             help="ctc weight for inference",
+        )
+        parser.add_argument(
+            "--gradient-checkpointing",
+            action='store_true',
+            help="whether to use gradient checkpointing",
         )
 
     def __init__(self, args, dicts, config):
