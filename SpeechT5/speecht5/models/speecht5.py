@@ -888,13 +888,13 @@ class T5TransformerModel(FairseqEncoderDecoderModel):
         if self.sync_matrix_len is not None:
             encoder_input, encoder_padding_mask = self.forward_sync(encoder_input, encoder_padding_mask, self.sync_matrix, input_type=input_type)
 
-        breakpoint()
         # Encoder: T x B x C
         encoder_output = self.encoder(
             encoder_input,
             encoder_padding_mask,
             tgt_layer=tgt_enc_layer,
-            sync_matrix_len=self.sync_matrix_len
+            sync_matrix_len=self.sync_matrix_len,
+            extra_encoder_padding_mask=hubert_padding_mask if input_type == 'speech' else None,
         )
 
         if task_name is not None and task_name == 'speech_pretrain' and feature_only:

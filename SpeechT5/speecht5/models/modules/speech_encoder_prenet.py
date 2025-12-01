@@ -87,6 +87,7 @@ class SpeechEncoderPrenet(nn.Module):
             conv_bias=args.conv_bias,
         )
         feature_ds_rate = np.prod([s for _, _, s in feature_enc_layers])
+        self.feature_ds_rate = feature_ds_rate
         self.feat2tar_ratio = (
             args.label_rates * feature_ds_rate / args.sample_rate
         )
@@ -173,6 +174,9 @@ class SpeechEncoderPrenet(nn.Module):
         x = x.transpose(1, 2) # [batch, length, hidden_size]
         x = self.layer_norm(x)
         encoder_padding_mask = self.forward_padding_mask(x, encoder_padding_mask)
+        if target_list is not None and (target_list[0][~encoder_padding_mask] <= 0).any():
+            # Cihan: Fix the masks so that -100 pads in the target list are not considered
+            encoder_padding_mask = torch.logical_or(encoder_padding_mask, target_list[0] <= 0)
         if self.post_extract_proj is not None:
             x = self.post_extract_proj(x)
         x = self.dropout_module(x)
@@ -203,6 +207,7 @@ class SpeechEncoderPrenet(nn.Module):
             # For consistence with encoder
             return x, encoder_padding_mask
 
+    @torch.compiler.disable(recursive=False)
     def forward_targets(
         self, features: torch.Tensor, target_list: List[torch.Tensor],
     ) -> Tuple[torch.Tensor, torch.Tensor]:

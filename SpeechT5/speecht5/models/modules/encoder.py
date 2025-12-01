@@ -17,6 +17,7 @@ from fairseq import utils
 from fairseq.models import (
     FairseqEncoder,
 )
+from fairseq.distributed import fsdp_wrap
 from fairseq.modules import (
     FairseqDropout,
     LayerNorm,
@@ -27,7 +28,7 @@ from .transformer_layer import TransformerSentenceEncoderLayer
 from fairseq.modules.checkpoint_activations import checkpoint_wrapper
 
 
-DEFAULT_MIN_PARAMS_TO_WRAP = int(1e8)
+DEFAULT_MIN_PARAMS_TO_WRAP = int(1e5)
 
 def Linear(in_features, out_features, bias=True):
     m = nn.Linear(in_features, out_features, bias)
@@ -129,7 +130,7 @@ class TransformerEncoder(FairseqEncoder):
             )
         else:
             layer = TransformerEncoderLayer(args)
-
+            
         checkpoint = getattr(args, "gradient_checkpointing", False)
         if checkpoint:
             use_pytorch_checkpoint = args.ddp_backend == "pytorch_ddp"
@@ -141,6 +142,14 @@ class TransformerEncoder(FairseqEncoder):
                 use_reentrant=False,
                 offload_to_cpu=offload_to_cpu,
             )
+        # if we are checkpointing, enforce that FSDP always wraps the
+        # checkpointed layer, regardless of layer size
+        min_params_to_wrap = (
+            getattr(args, "min_params_to_wrap", DEFAULT_MIN_PARAMS_TO_WRAP)
+            if not checkpoint
+            else 0
+        )
+        # layer = fsdp_wrap(layer, min_num_params=min_params_to_wrap)
         return layer
 
     def forward(
@@ -160,8 +169,6 @@ class TransformerEncoder(FairseqEncoder):
                 shape `(batch)`
             return_all_hiddens (bool, optional): also return all of the
                 intermediate hidden states (default: False).
-            token_embeddings (torch.Tensor, optional): precomputed embeddings
-                default `None` will recompute embeddings
 
         Returns:
             dict:
@@ -193,7 +200,6 @@ class TransformerEncoder(FairseqEncoder):
         encoder_out["encoder_out_for_ctc"] = [x_for_ctc] # T x B x C
         if extra_encoder_padding_mask is not None:
             encoder_out["extra_encoder_padding_mask"] = [extra_encoder_padding_mask]
-
 
         return encoder_out
 
@@ -232,6 +238,7 @@ class TransformerEncoder(FairseqEncoder):
                   hidden states of shape `(src_len, batch, embed_dim)`.
                   Only populated if *return_all_hiddens* is True.
         """
+        _encoder_in = encoder_in
         if self.no_freeze_encoder_layer is not None:
             ft = self.freeze_encoder_updates <= self.num_updates
         else:
@@ -308,6 +315,7 @@ class TransformerEncoder(FairseqEncoder):
             "encoder_states": encoder_states,  # List[T x B x C]
             "src_tokens": [],
             "decoder_input": [d],
+            "encoder_in": [_encoder_in],
         }
 
     @torch.jit.export
@@ -350,14 +358,14 @@ class TransformerEncoder(FairseqEncoder):
             new_decoder_input = [
                 encoder_out["decoder_input"][0].index_select(0, new_order)
             ]
-
+            
         if len(encoder_out["encoder_out_sync"]) == 0:
             new_encoder_out_sync = []
         else:
             new_encoder_out_sync = [
                 encoder_out["encoder_out_sync"][0].index_select(1, new_order)
             ]
-
+        
         if len(encoder_out["encoder_out_info"]) == 0:
             new_encoder_out_info = []
         else:

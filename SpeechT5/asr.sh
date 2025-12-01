@@ -49,7 +49,7 @@ log() {
 data_dir=data
 expdir=exp
 spm_model=/home/ec2-user/mult5/SpeechT5/models/spm_char.model
-pretrain_model=downloads/amir/finetune100_base/checkpoint_best.pt
+pretrain_model=downloads/amir/pretrain/base/checkpoint_best.pt
 
 stage=1
 stop_stage=1
@@ -61,12 +61,12 @@ lab_dir=${data_dir}/asr
 if [ $stage -le 1 ] && [ $stop_stage -ge 1 ]; then
     log "Stage 1: Run the ASR fine-tuning script..."
     JOBID=$(date +%Y%m%d%H%M%S)
-    JOBID=debug
+    # JOBID=debug
     DATA_ROOT=${lab_dir}
     SAVE_DIR=${expdir}/asr/${JOBID}
     LABEL_DIR=${lab_dir}
-    # TRAIN_SET="speech_train"
-    TRAIN_SET="speech_valid"
+    TRAIN_SET="speech_train"
+    # TRAIN_SET="speech_valid"
     VALID_SET="speech_valid"
     PT_CHECKPOINT_PATH=${pretrain_model}
 
@@ -78,7 +78,7 @@ if [ $stage -le 1 ] && [ $stop_stage -ge 1 ]; then
         --train-subset ${TRAIN_SET} \
         --valid-subset ${VALID_SET} \
         --hubert-label-dir ${LABEL_DIR} \
-        --distributed-world-size 1 \
+        --distributed-world-size 4 \
         --distributed-port 0 \
         --ddp-backend pytorch_ddp \
         --user-dir speecht5 \
@@ -137,92 +137,3 @@ if [ $stage -le 1 ] && [ $stop_stage -ge 1 ]; then
         --finetune-from-model ${PT_CHECKPOINT_PATH} \
         --load-checkpoint-on-all-dp-ranks
 fi
-
-# fairseq-train ${DATA_ROOT} \
-    #     --save-dir ${SAVE_DIR} \
-    #     --tensorboard-logdir ${SAVE_DIR} \
-    #     --train-subset ${TRAIN_SET} \
-    #     --valid-subset ${VALID_SET} \
-    #     --hubert-label-dir ${LABEL_DIR} \
-    #     --distributed-world-size 4 \
-    #     --distributed-port 0 \
-    #     --ddp-backend pytorch_ddp \
-    #     --user-dir speecht5 \
-    #     --log-format simple \
-    #     --seed 1337 \
-    #     --fp16 \
-    #     --fp16-scale-tolerance=0.25 \
-    #     --gradient-checkpointing \
-    #     \
-    #     --task speecht5 \
-    #     --t5-task pretrain \
-    #     --label-rates 50 \
-    #     --sample-rate 16000 \
-    #     --random-crop \
-    #     \
-    #     --num-workers 0 \
-    #     --max-tokens 5000000 \
-    #     --encoder-seq-len 999 \
-    #     --batch-size 8 \
-    #     --batch-size-valid 12 \
-    #     --max-speech-sample-size 320000 \
-    #     --mel-hop-scale 2 \
-    #     --pad-audio \
-    #     --update-freq 2 \
-    #     --batch-ratio "[1,0.0032]" \
-    #     \
-    #     --criterion speecht5 \
-    #     --optimizer adam \
-    #     --reset-optimizer \
-    #     --adam-betas "(0.9, 0.98)" \
-    #     --adam-eps 1e-06 \
-    #     --weight-decay 0.01 \
-    #     --power 1 \
-    #     --clip-norm 5.0 \
-    #     --lr 0.0002 \
-    #     --lr-scheduler polynomial_decay \
-    #     \
-    #     --max-update 100000 \
-    #     --warmup-updates 10000 \
-    #     --total-num-update 100000 \
-    #     --save-interval-updates 1000 \
-    #     --log-interval 20 \
-    #     --skip-invalid-size-inputs-valid-test \
-    #     --required-batch-size-multiple 1 \
-    #     --keep-last-epochs 4 \
-    #     \
-    #     --arch t5_transformer_base \
-    #     --encoder-speech-prenet mel \
-    #     --encoder-layers 8 \
-    #     --speech-prenet-encoder-layers 10 \
-    #     --share-input-output-embed \
-    #     --find-unused-parameters \
-    #     --bert-init \
-    #     --relative-position-embedding \
-    #     --use-codebook \
-    #     --codebook-prob 0.2 \
-    #     --loss-weights="[10,0.1]" \
-    #     --max-text-positions 999 \
-    #     --clear-cache-threshold 20480
-
-        # --pad-audio-with-max \
-# --no-reshard-after-forward \
-
-# print(torch.cuda.memory_summary())
-
-# import gc
-# import torch
-
-# total_mem = 0.0
-# for obj in gc.get_objects():
-#     try:
-#         # if torch.is_tensor(obj) and obj.is_cuda and obj.numel() > 10000000:
-#         # if torch.is_tensor(obj) and obj.is_cuda and obj.numel() > 10000:
-#         if torch.is_tensor(obj) and obj.is_cuda:
-#             size_mb = obj.numel() * obj.element_size() / 1e6
-#             total_mem += size_mb
-#             print(f"Large Tensor: {obj.shape}, dtype={obj.dtype}, size={size_mb:.2f} MB, requires_grad: {obj.requires_grad if hasattr(obj, 'requires_grad') else 'N/A'}")
-#     except:
-#         pass
-
-# print(f"Total memory of large tensors: {total_mem:.2f} MB")

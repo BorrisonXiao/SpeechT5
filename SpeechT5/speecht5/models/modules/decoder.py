@@ -27,7 +27,7 @@ from torch import Tensor
 from .encoder import RelativePositionalEncoding
 from .transformer_layer import TransformerDecoderLayer
 
-DEFAULT_MIN_PARAMS_TO_WRAP = int(1e8)
+DEFAULT_MIN_PARAMS_TO_WRAP = int(1e5)
 
 
 class TransformerDecoder(FairseqIncrementalDecoder):
@@ -244,6 +244,9 @@ class TransformerDecoder(FairseqIncrementalDecoder):
             else:
                 self_attn_mask = None
 
+            # To fix the inconsistent query/bias issue
+            if self_attn_mask is not None:
+                self_attn_mask = self_attn_mask.to(x.dtype)
             x, layer_attn, _ = layer(
                 x,
                 enc,

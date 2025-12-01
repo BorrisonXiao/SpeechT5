@@ -59,8 +59,8 @@ lab_dir=${data_dir}/asr
 eval_script=scripts/wer.py
 
 # CHECKPOINT_PATH=exp/asr/v1.4/checkpoint_best.pt
-CHECKPOINT_PATH=/home/ec2-user/t5/SpeechT5/downloads/amir/finetune100_base/checkpoint_best.pt
-tag=debug_amir_finetune100_base
+CHECKPOINT_PATH=/home/ec2-user/t5/SpeechT5/exp/asr/v1/checkpoint_best.pt
+tag=v1-checkpoint_best
 # CHECKPOINT_PATH=exp/asr/v1.1/checkpoint_2_5000.pt
 # CHECKPOINT_PATH=exp/asr/v1.3/checkpoint_5_16000.pt
 DATA_ROOT=${lab_dir}
@@ -71,10 +71,10 @@ SUBSETS="test-clean" # List of subsets
 BPE_TOKENIZER=$spm_model
 LABEL_DIR=$DATA_ROOT
 USER_DIR=speecht5
-BEAM=1 #10
+BEAM=10 #10
 MAX_TOKENS=4000000
 BATCH_SIZE=1
-CTC_WEIGHT=0
+CTC_WEIGHT=0.5
 LM_WEIGHT=0
 
 . scripts/parse_options.sh || exit 1;
