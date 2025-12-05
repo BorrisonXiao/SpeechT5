@@ -94,16 +94,16 @@ class T5TransformerModel(FairseqEncoderDecoderModel):
         # Add modality vectors, 0 for text and 1 for speech
         self.modality_vectors = torch.nn.Embedding(2, args.encoder_embed_dim)
         # Add the synchronization matrix
-        if args.sync_matrix_len is not None:
+        if getattr(args, 'sync_matrix_len', None) is not None:
             self.sync_matrix = torch.nn.Parameter(
                 torch.empty(args.sync_matrix_len, args.encoder_embed_dim)
             )
             torch.nn.init.xavier_uniform_(self.sync_matrix)
         else:
             self.sync_matrix = torch.nn.Identity()
-        self.sync_matrix_len = args.sync_matrix_len
+        self.sync_matrix_len = getattr(args, 'sync_matrix_len', None)
         
-        self.clear_cache_threshold = args.clear_cache_threshold
+        self.clear_cache_threshold = getattr(args, 'sync_matrix_len', 32768)
         self.clear_cache_verbose = CLEAR_CACHE_VERBOSE
 
         self.use_codebook = args.use_codebook
@@ -1231,7 +1231,16 @@ class T5TransformerModel(FairseqEncoderDecoderModel):
         encoder_input, encoder_padding_mask = self.text_encoder_prenet(src_tokens)
 
         # Encoder
-        encoder_output = self.encoder(encoder_input, encoder_padding_mask)
+        if self.sync_matrix_len is not None:
+            encoder_input, encoder_padding_mask = self.forward_sync(encoder_input, encoder_padding_mask, self.sync_matrix, input_type='text')
+            # Encoder
+            encoder_output = self.encoder(
+                encoder_input,
+                encoder_padding_mask,
+                sync_matrix_len=self.sync_matrix_len,
+            )
+        else:
+            encoder_output = self.encoder(encoder_input, encoder_padding_mask)
 
         return encoder_output
 
@@ -1293,9 +1302,10 @@ class T5TransformerModel(FairseqEncoderDecoderModel):
             ).transpose(0, 1)]
             spkembs = None
 
-        maxlen = int(encoder_out["encoder_out"][0].size(0) * maxlenratio / self.reduction_factor)
-        minlen = int(encoder_out["encoder_out"][0].size(0) * minlenratio / self.reduction_factor)
-        
+        input_seq_len = encoder_out["encoder_out"][0].size(0) if "encoder_out_info" not in encoder_out else encoder_out["encoder_out_info"][0].size(0)
+        maxlen = int(input_seq_len * maxlenratio / self.reduction_factor)
+        minlen = int(input_seq_len * minlenratio / self.reduction_factor)
+
         idx = 0
         ys = encoder_out["encoder_out"][0].new_zeros(1, 1, self.speech_decoder_postnet.odim)
         outs, probs = [], []

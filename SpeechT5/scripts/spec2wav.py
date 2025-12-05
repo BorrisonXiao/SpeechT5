@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import argparse
+import shutil
 import os
 import numpy as np
 import torch
@@ -38,13 +39,13 @@ def main():
     parser.add_argument(
         "-i",
         "--input_dir",
-        default="/home/cxiao7/research/mult5/SpeechT5/SpeechT5/exp/inference_tts/v1.0-checkpoint_4_18000/test-clean",
+        default="/home/ec2-user/t5/SpeechT5/exp/inference_tts/v0-checkpoint_39_13000/test-clean",
         help="Input directory containing .npy files",
     )
     parser.add_argument(
         "-o",
         "--output_dir",
-        default="/home/cxiao7/research/mult5/SpeechT5/SpeechT5/exp/inference_tts/v1.0-checkpoint_4_18000/test-clean_wav",
+        default="/home/ec2-user/t5/SpeechT5/exp/inference_tts/v0-checkpoint_39_13000/test-clean_wav",
         help="Output directory for .wav files",
     )
     parser.add_argument(
@@ -66,6 +67,9 @@ def main():
     # Process files
     input_path = Path(args.input_dir)
     npy_files = list(input_path.rglob("*.npy"))
+
+    # Remove directory and all its contents
+    shutil.rmtree(args.output_dir)
 
     print(f"Found {len(npy_files)} .npy files")
     for npy_file in npy_files:

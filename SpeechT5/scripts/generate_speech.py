@@ -13,6 +13,9 @@ from fairseq.logging import progress_bar
 from omegaconf import DictConfig
 
 
+DEMO_NUM = 100  # number of samples to save demo images
+
+
 # define function for plot prob and att_ws
 def _plot_and_save(array, figname, figsize=(6, 4), dpi=150):
     import matplotlib.pyplot as plt
@@ -119,8 +122,48 @@ def _main(cfg: DictConfig, output_file):
     )
     logger.info(saved_cfg)
 
+    # # --- START MODIFIED BLOCK ---
+
+    # # 1. Define the path to the model file
+    # model_path = utils.split_paths(cfg.common_eval.path)[0]
+    # logger.info("loading model(s) manually from {}".format(model_path))
+
+    # # 2. Manually load the checkpoint file using torch.load
+    # try:
+    #     state = torch.load(model_path, map_location=lambda storage, loc: storage, weights_only=False)
+    # except Exception as e:
+    #     logger.error(f"Failed to load checkpoint file at {model_path}: {e}")
+    #     exit()
+
+    # # Since we cannot get the config from the checkpoint (it's missing metadata), 
+    # # we must rely on the configuration loaded by fairseq's config manager (cfg).
+    # saved_cfg = state['cfg']
+
+    # # 3. Initialize the model architecture using the loaded (or default) configuration
+    # # Note: task.build_model expects the model configuration part of saved_cfg
+    # model = task.build_model(state['cfg']['model'])
+
+    # # 4. Extract and clean model state dictionary
+    # # Use .get('model', state) to safely handle files that contain only the model dict
+    # model_state_dict = state.get('model', state)
+
+    # # Clean up state_dict keys for Hugging Face compatibility if necessary
+    # model_state_dict = {
+    #     key.replace('_hf_text_encoder.', ''): value
+    #     for key, value in model_state_dict.items()
+    # }
+
+    # # 5. Load the weights into the initialized model
+    # model.load_state_dict(model_state_dict, strict=True)
+    # models = [model] # Create the model ensemble (list) containing our single model
+
+    # logger.info("Successfully loaded model state dictionary.")
+    # # logger.info(saved_cfg) # We skip logging saved_cfg as it's the current cfg, not from the file
+
+    # # --- END MODIFIED BLOCK ---
+
     # loading the dataset should happen after the checkpoint has been loaded so we can give it the saved task config
-    task.load_dataset(cfg.dataset.gen_subset, task_cfg=saved_cfg.task)
+    task.load_dataset(cfg.dataset.gen_subset, task_cfg=saved_cfg['task'])
 
     # optimize ensemble for generation
     for model in models:
@@ -176,7 +219,7 @@ def _main(cfg: DictConfig, output_file):
             )
         )
 
-        if i < 6 and attn is not None:
+        if i < DEMO_NUM and attn is not None:
             import shutil
             demo_dir = op.join(op.dirname(cfg.common_eval.results_path), "demo")
             audio_dir = op.join(demo_dir, "audio")
