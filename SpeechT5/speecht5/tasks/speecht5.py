@@ -180,13 +180,14 @@ class SpeechT5Task(LegacyFairseqTask):
             type=float,
             help="shuffle this proportion of sentences in all inputs",
         )
-        # parser.add_argument(
-        #     "--mask-length",
-        #     default="span-poisson",
-        #     type=str,
-        #     choices=["subword", "word", "span-poisson"],
-        #     help="mask length to choose",
-        # )
+        if not any(a.dest == "mask_length" for a in parser._actions):
+            parser.add_argument(
+                "--mask-length",
+                default="span-poisson",
+                type=str,
+                choices=["subword", "word", "span-poisson"],
+                help="mask length to choose",
+            )
         parser.add_argument(
             "--replace-length",
             default=1,

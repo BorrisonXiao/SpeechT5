@@ -77,6 +77,9 @@ class SpeechToTextDataset(FairseqDataset):
         manifest_path: str,
         sample_rate: float,
         label_paths: List[str],
+        src_lang: str = "<|en|>",
+        tgt_lang: str = "<|en|>",
+        task: str = "<|asr|>",
         label_processors: Optional[List[Any]] = None,
         max_keep_sample_size: Optional[int] = None,
         min_keep_sample_size: Optional[int] = None,
@@ -93,6 +96,11 @@ class SpeechToTextDataset(FairseqDataset):
         self.shuffle = shuffle
         self.tgt_dict = tgt_dict
         self.tokenizer = tokenizer
+
+        # Multi-tasking
+        self.src_lang = src_lang
+        self.tgt_lang = tgt_lang
+        self.task = task
 
         self.num_labels = len(label_paths)
         self.label_processors = label_processors
@@ -131,6 +139,11 @@ class SpeechToTextDataset(FairseqDataset):
 
         if self.tokenizer is not None:
             label = self.tokenizer.encode(label)
+
+        # Add the task-specific special tokens for multi-tasking in the
+        # following manner: <|task|> <|src_lang|> <|tgt_lang|>
+        # e.g., <|asr|> <|en|> <|en|>
+        label = f"{self.task} {self.src_lang} {self.tgt_lang} " + label
 
         if self.label_processors is not None:
             label = self.label_processors[label_idx](label)

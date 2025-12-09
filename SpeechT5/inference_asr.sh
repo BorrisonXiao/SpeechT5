@@ -54,13 +54,13 @@ data_dir=data
 spm_model=/home/ec2-user/mult5/SpeechT5/models/spm_char.model
 expdir=exp
 
-lab_dir=${data_dir}/asr
+lab_dir=${data_dir}/ASR/asr
 
 eval_script=scripts/wer.py
 
 # CHECKPOINT_PATH=exp/asr/v1.4/checkpoint_best.pt
-CHECKPOINT_PATH=/home/ec2-user/t5/SpeechT5/exp/asr/v1/checkpoint_best.pt
-tag=v1-checkpoint_best
+CHECKPOINT_PATH=/home/ec2-user/t5/SpeechT5/exp/asr/v3-20251207092620/checkpoint5.pt
+tag=v3-checkpoint5
 # CHECKPOINT_PATH=exp/asr/v1.1/checkpoint_2_5000.pt
 # CHECKPOINT_PATH=exp/asr/v1.3/checkpoint_5_16000.pt
 DATA_ROOT=${lab_dir}
@@ -73,8 +73,8 @@ LABEL_DIR=$DATA_ROOT
 USER_DIR=speecht5
 BEAM=10 #10
 MAX_TOKENS=4000000
-BATCH_SIZE=1
-CTC_WEIGHT=0.5
+BATCH_SIZE=10
+CTC_WEIGHT=0
 LM_WEIGHT=0
 
 . scripts/parse_options.sh || exit 1;

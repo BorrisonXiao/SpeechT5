@@ -36,7 +36,7 @@ export PYTORCH_CUDA_ALLOC_CONF=garbage_collection_threshold:0.8
 # Disable P2P to avoid hangs (doesn't quite work though)
 # export NCCL_P2P_DISABLE=1
 
-# export CUDA_VISIBLE_DEVICES=0,1
+# export CUDA_VISIBLE_DEVICES=2,3
 
 set -eou pipefail
 
@@ -48,26 +48,22 @@ log() {
 
 data_dir=data
 expdir=exp
-spm_model=/home/ec2-user/mult5/SpeechT5/models/spm_char.model
-pretrain_model=/home/ec2-user/mult5/SpeechT5/exp/pretrain/v3/checkpoint_last.pt
 
 stage=1
 stop_stage=1
 
-nshard=1
-split=train
-lab_dir=${data_dir}/ASR/asr # The special-token version
+lab_dir=${data_dir}/hubert_km_labels
 
 if [ $stage -le 1 ] && [ $stop_stage -ge 1 ]; then
-    log "Stage 1: Run the ASR fine-tuning script..."
+    log "Stage 1: Run the pre-training script..."
     JOBID=$(date +%Y%m%d%H%M%S)
     # JOBID=debug
-    DATA_ROOT=${lab_dir}
-    SAVE_DIR=${expdir}/asr/v3-${JOBID}
+    DATA_ROOT=${data_dir}/pretrain
+    SAVE_DIR=${expdir}/pretrain/${JOBID}
     LABEL_DIR=${lab_dir}
-    TRAIN_SET="train-clean-100"
-    VALID_SET="dev-clean"
-    PT_CHECKPOINT_PATH=${pretrain_model}
+    # TRAIN_SET="speech_valid|text_valid"
+    TRAIN_SET="speech_train|text_train"
+    VALID_SET="speech_valid|text_valid"
 
     mkdir -p ${SAVE_DIR}
 
@@ -77,63 +73,61 @@ if [ $stage -le 1 ] && [ $stop_stage -ge 1 ]; then
         --train-subset ${TRAIN_SET} \
         --valid-subset ${VALID_SET} \
         --hubert-label-dir ${LABEL_DIR} \
-        --distributed-world-size 4 \
+        --distributed-world-size 8 \
         --distributed-port 0 \
         --ddp-backend pytorch_ddp \
         --user-dir speecht5 \
         --log-format simple \
         --seed 1337 \
         --fp16 \
-        --fp16-scale-tolerance=0.2 \
-        --fp16-init-scale 32 \
+        --fp16-scale-tolerance=0.25 \
         --gradient-checkpointing \
         \
         --task speecht5 \
-        --t5-task s2t \
+        --t5-task pretrain \
+        --label-rates 50 \
         --sample-rate 16000 \
-        --sync-matrix-len 512 \
+        --random-crop \
+        \
         --num-workers 0 \
-        --max-tokens 4000000 \
+        --max-tokens 1200000 \
+        --max-sentences 36 \
+        --sync-matrix-len 512 \
+        --batch-size-valid 40 \
+        --max-speech-sample-size 250000 \
+        --pad-audio \
         --update-freq 1 \
-        --bpe-tokenizer ${spm_model} \
+        --batch-ratio "[1,0.0086]" \
         \
         --criterion speecht5 \
-        --report-accuracy \
-        --zero-infinity \
-        --ce-weight 0.5 \
-        --ctc-weight 0.5 \
-        --sentence-avg \
-        \
         --optimizer adam \
+        --reset-optimizer \
         --adam-betas "(0.9, 0.98)" \
-        --adam-eps 1e-08 \
-        --weight-decay 0.1 \
-        --clip-norm 25.0 \
-        --lr 0.0001 \
-        --lr-scheduler tri_stage \
-        --phase-ratio "[0.1, 0.3, 0.6]" \
-        --final-lr-scale 0.05 \
+        --adam-eps 1e-06 \
+        --weight-decay 0.01 \
+        --power 1 \
+        --clip-norm 5.0 \
+        --lr 0.0002 \
+        --lr-scheduler polynomial_decay \
         \
-        --max-update 80000 \
-        --max-text-positions 600 \
-        --required-batch-size-multiple 1 \
-        --validate-after-updates 10000 \
-        --save-interval-updates 5000 \
-        --log-interval 10 \
+        --max-update 320000 \
+        --warmup-updates 20000 \
+        --total-num-update 320000 \
+        --validate-after-updates 20000 \
+        --save-interval-updates 10000 \
+        --log-interval 20 \
         --skip-invalid-size-inputs-valid-test \
+        --required-batch-size-multiple 1 \
+        --keep-last-epochs 2 \
         \
-        --arch t5_transformer_base_asr \
+        --arch t5_transformer_base \
         --share-input-output-embed \
         --find-unused-parameters \
         --bert-init \
         --relative-position-embedding \
-        --freeze-encoder-updates 100 \
-        \
-        --keep-last-epochs 4 \
-        --feature-grad-mult 1.0 \
-        --best-checkpoint-metric s2t_accuracy \
-        --maximize-best-checkpoint-metric \
-        --clear-cache-threshold 35840 \
-        --load-checkpoint-on-all-dp-ranks
+        --use-codebook \
+        --codebook-prob 0.2 \
+        --loss-weights="[10,0.1]" \
+        --max-text-positions 600 \
+        --clear-cache-threshold 35840
 fi
-        # --finetune-from-model ${PT_CHECKPOINT_PATH} \

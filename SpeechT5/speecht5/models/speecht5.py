@@ -930,6 +930,8 @@ class T5TransformerModel(FairseqEncoderDecoderModel):
             # q["x"]: B x T x C
             # Sample indexs according to the codebook prob
             random_idx = torch.randperm(q["x"].size(1))[:int(q["x"].size(1) * self.codebook_prob)]
+            # Remove all indices that belong to the information part
+            random_idx = random_idx[random_idx < self.sync_matrix_len]
             # Make weight for q
             q_w = q["x"].new_zeros(q["x"].size(1))
             q_w[random_idx] = 1.0

@@ -57,8 +57,8 @@ lab_dir=${data_dir}/tts
 
 # CHECKPOINT_PATH=exp/tts/20251024112042/checkpoint_4_18000.pt
 # tag=v1.0-checkpoint_4_18000
-CHECKPOINT_PATH=/home/ec2-user/t5/SpeechT5/exp/tts/20251204141312/checkpoint_39_13000.pt
-tag=v0-checkpoint_39_13000
+CHECKPOINT_PATH=/home/ec2-user/t5/SpeechT5/exp/tts/v1/checkpoint_84_28000.pt
+tag=v1-checkpoint_84_28000
 DATA_ROOT=${lab_dir}
 SUBSETS="test-clean" # List of subsets
 # SUBSETS="speech_train" # List of subsets

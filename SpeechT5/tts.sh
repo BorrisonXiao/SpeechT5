@@ -117,7 +117,7 @@ if [ $stage -le 1 ] && [ $stop_stage -ge 1 ]; then
         --warmup-updates 500 \
         --feature-grad-mult 1.0 \
         \
-        --max-update 32000 \
+        --max-update 48000 \
         --max-text-positions 600 \
         --min-speech-sample-size 1056 \
         --max-speech-sample-size 480256 \
