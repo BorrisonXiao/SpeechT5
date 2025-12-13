@@ -57,6 +57,7 @@ lab_dir=${data_dir}/hubert_km_labels
 if [ $stage -le 1 ] && [ $stop_stage -ge 1 ]; then
     log "Stage 1: Run the pre-training script..."
     JOBID=$(date +%Y%m%d%H%M%S)
+    JOBID=20251208175035
     # JOBID=debug
     DATA_ROOT=${data_dir}/pretrain
     SAVE_DIR=${expdir}/pretrain/${JOBID}
@@ -80,7 +81,7 @@ if [ $stage -le 1 ] && [ $stop_stage -ge 1 ]; then
         --log-format simple \
         --seed 1337 \
         --fp16 \
-        --fp16-scale-tolerance=0.25 \
+        --fp16-scale-tolerance=0.02 \
         --gradient-checkpointing \
         \
         --task speecht5 \
@@ -101,7 +102,6 @@ if [ $stage -le 1 ] && [ $stop_stage -ge 1 ]; then
         \
         --criterion speecht5 \
         --optimizer adam \
-        --reset-optimizer \
         --adam-betas "(0.9, 0.98)" \
         --adam-eps 1e-06 \
         --weight-decay 0.01 \
@@ -114,7 +114,7 @@ if [ $stage -le 1 ] && [ $stop_stage -ge 1 ]; then
         --warmup-updates 20000 \
         --total-num-update 320000 \
         --validate-after-updates 20000 \
-        --save-interval-updates 10000 \
+        --save-interval-updates 5000 \
         --log-interval 20 \
         --skip-invalid-size-inputs-valid-test \
         --required-batch-size-multiple 1 \
@@ -129,5 +129,7 @@ if [ $stage -le 1 ] && [ $stop_stage -ge 1 ]; then
         --codebook-prob 0.2 \
         --loss-weights="[10,0.1]" \
         --max-text-positions 600 \
+        --load-checkpoint-on-all-dp-ranks \
         --clear-cache-threshold 35840
 fi
+        # --reset-optimizer \

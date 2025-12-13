@@ -103,7 +103,7 @@ class T5TransformerModel(FairseqEncoderDecoderModel):
             self.sync_matrix = torch.nn.Identity()
         self.sync_matrix_len = getattr(args, 'sync_matrix_len', None)
         
-        self.clear_cache_threshold = getattr(args, 'sync_matrix_len', 32768)
+        self.clear_cache_threshold = getattr(args, 'clear_cache_threshold', 32768)
         self.clear_cache_verbose = CLEAR_CACHE_VERBOSE
 
         self.use_codebook = args.use_codebook
