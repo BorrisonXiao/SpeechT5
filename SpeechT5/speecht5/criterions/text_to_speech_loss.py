@@ -36,11 +36,17 @@ class TexttoSpeechLossConfig(FairseqDataclass):
     )
     bce_pos_weight: float = field(
         default=5.0,
-        metadata={"help": "Positive sample weight in BCE calculation (only for use-masking=True)"},
+        metadata={
+            "help": "Positive sample weight in BCE calculation (only for use-masking=True)"
+        },
     )
     bce_loss_lambda: float = field(
         default=1.0,
         metadata={"help": "Lambda in bce loss"},
+    )
+    ce_loss_lambda: float = field(
+        default=1.0,
+        metadata={"help": "Lambda in ce loss for special tokens"},
     )
     use_guided_attn_loss: bool = field(
         default=False,
@@ -56,11 +62,15 @@ class TexttoSpeechLossConfig(FairseqDataclass):
     )
     num_layers_applied_guided_attn: int = field(
         default=2,
-        metadata={"help": "Number of layers to be applied guided attention loss, if set -1, all of the layers will be applied."},
+        metadata={
+            "help": "Number of layers to be applied guided attention loss, if set -1, all of the layers will be applied."
+        },
     )
     num_heads_applied_guided_attn: int = field(
         default=2,
-        metadata={"help": "Number of heads in each layer to be applied guided attention loss, if set -1, all of the heads will be applied."},
+        metadata={
+            "help": "Number of heads in each layer to be applied guided attention loss, if set -1, all of the heads will be applied."
+        },
     )
     modules_applied_guided_attn: Any = field(
         default=("encoder-decoder",),
@@ -79,6 +89,7 @@ class TexttoSpeechLoss(FairseqCriterion):
         loss_type="L1",
         bce_pos_weight=5.0,
         bce_loss_lambda=1.0,
+        ce_loss_lambda=1.0,
         use_guided_attn_loss=False,
         guided_attn_loss_sigma=0.4,
         guided_attn_loss_lambda=1.0,
@@ -93,6 +104,7 @@ class TexttoSpeechLoss(FairseqCriterion):
         self.loss_type = loss_type
         self.bce_pos_weight = bce_pos_weight
         self.bce_loss_lambda = bce_loss_lambda
+        self.ce_loss_lambda = ce_loss_lambda
         self.use_guided_attn_loss = use_guided_attn_loss
         self.guided_attn_loss_sigma = guided_attn_loss_sigma
         self.guided_attn_loss_lambda = guided_attn_loss_lambda
@@ -121,7 +133,9 @@ class TexttoSpeechLoss(FairseqCriterion):
         3) logging outputs to display while training
         """
         net_output = model(**sample["net_input"])
-        loss, l1_loss, l2_loss, bce_loss, enc_dec_attn_loss = self.compute_loss(model, net_output, sample)
+        loss, l1_loss, l2_loss, bce_loss, enc_dec_attn_loss, ce_loss = self.compute_loss(
+            model, net_output, sample
+        )
         # sample_size = (
         #     sample["target"].size(0) if self.sentence_avg else sample["nframes"]
         # )
@@ -131,28 +145,39 @@ class TexttoSpeechLoss(FairseqCriterion):
             "l1_loss": l1_loss.item(),
             "l2_loss": l2_loss.item(),
             "bce_loss": bce_loss.item(),
+            "ce_loss": ce_loss.item(),
             "sample_size": 1,
             "ntokens": sample["ntokens"],
             "nsentences": sample["target"].size(0),
         }
 
         if enc_dec_attn_loss is not None:
-            logging_output['enc_dec_attn_loss'] = enc_dec_attn_loss.item()
+            logging_output["enc_dec_attn_loss"] = enc_dec_attn_loss.item()
 
-        if hasattr(model, 'text_encoder_prenet'):
-            logging_output["encoder_alpha"] = model.text_encoder_prenet.encoder_prenet[-1].alpha.item()
-            logging_output["decoder_alpha"] = model.speech_decoder_prenet.decoder_prenet[-1].alpha.item()
+        if hasattr(model, "text_encoder_prenet"):
+            logging_output["encoder_alpha"] = model.text_encoder_prenet.encoder_prenet[
+                -1
+            ].alpha.item()
+            logging_output["decoder_alpha"] = (
+                model.speech_decoder_prenet.decoder_prenet[-1].alpha.item()
+            )
         elif hasattr(model, "speech_encoder_prenet"):
-            logging_output["decoder_alpha"] = model.speech_decoder_prenet.decoder_prenet[-1].alpha.item()
+            logging_output["decoder_alpha"] = (
+                model.speech_decoder_prenet.decoder_prenet[-1].alpha.item()
+            )
         else:
-            if 'task' not in sample:
-                logging_output["encoder_alpha"] = model.encoder_prenet.encoder_prenet[-1].alpha.item()
-            logging_output["decoder_alpha"] = model.decoder_prenet.decoder_prenet[-1].alpha.item()
+            if "task" not in sample:
+                logging_output["encoder_alpha"] = model.encoder_prenet.encoder_prenet[
+                    -1
+                ].alpha.item()
+            logging_output["decoder_alpha"] = model.decoder_prenet.decoder_prenet[
+                -1
+            ].alpha.item()
 
         return loss, sample_size, logging_output
 
     def compute_loss(self, model, net_output, sample):
-        before_outs, after_outs, logits, attn = net_output
+        before_outs, after_outs, logits, attn, special_logits = net_output
         labels = sample["labels"]
         ys = sample["dec_target"]
         olens = sample["dec_target_lengths"]
@@ -160,58 +185,94 @@ class TexttoSpeechLoss(FairseqCriterion):
 
         # modifiy mod part of groundtruth
         if model.reduction_factor > 1:
-            olens_in = olens.new([torch.div(olen, model.reduction_factor, rounding_mode='floor') for olen in olens])
+            olens_in = olens.new(
+                [
+                    torch.div(olen, model.reduction_factor, rounding_mode="floor")
+                    for olen in olens
+                ]
+            )
             olens = olens.new([olen - olen % model.reduction_factor for olen in olens])
             max_olen = max(olens)
             ys = ys[:, :max_olen]
             labels = labels[:, :max_olen]
-            labels = torch.scatter(labels, 1, (olens - 1).unsqueeze(1), 1.0) # make sure at least one frame has 1
-            # labels[:, -1] = 1.0  
+            labels = torch.scatter(
+                labels, 1, (olens - 1).unsqueeze(1), 1.0
+            )  # make sure at least one frame has 1
+            # labels[:, -1] = 1.0
         else:
             olens_in = olens
 
         # caluculate loss values
-        l1_loss, l2_loss, bce_loss = self.criterion(
-            after_outs, before_outs, logits, ys, labels, olens
+        l1_loss, l2_loss, bce_loss, ce_loss = self.criterion(
+            after_outs,
+            before_outs,
+            logits,
+            special_logits,
+            ys,
+            labels,
+            olens,
+            special_token_ids=sample["net_input"].get("special_token_ids", None),
+            reduction_factor=model.reduction_factor,
         )
 
         # l1_loss = l1_loss / ys.size(2)
         # l2_loss = l2_loss / ys.size(2)
 
         if self.loss_type == "L1":
-            loss = l1_loss + self.bce_loss_lambda * bce_loss if self.bce_loss_lambda > 0.0 else l1_loss
+            loss = (
+                l1_loss + self.bce_loss_lambda * bce_loss
+                if self.bce_loss_lambda > 0.0
+                else l1_loss
+            )
         elif self.loss_type == "L2":
-            loss = l2_loss + self.bce_loss_lambda * bce_loss if self.bce_loss_lambda > 0.0 else l2_loss
+            loss = (
+                l2_loss + self.bce_loss_lambda * bce_loss
+                if self.bce_loss_lambda > 0.0
+                else l2_loss
+            )
         elif self.loss_type == "L1+L2":
-            loss = l1_loss + l2_loss + self.bce_loss_lambda * bce_loss if self.bce_loss_lambda > 0.0 else l1_loss + l2_loss
+            loss = (
+                l1_loss + l2_loss + self.bce_loss_lambda * bce_loss
+                if self.bce_loss_lambda > 0.0
+                else l1_loss + l2_loss
+            )
         else:
             raise ValueError("unknown --loss-type " + self.loss_type)
+        
+        loss = loss + ce_loss * self.ce_loss_lambda if self.ce_loss_lambda > 0.0 else loss
 
         # calculate guided attention loss
         enc_dec_attn_loss = None
         if self.use_guided_attn_loss:
             # calculate the input lengths of encoder, which is determined by encoder prenet
-            if hasattr(model, 'encoder_reduction_factor') and model.encoder_reduction_factor > 1:
-                ilens_in = ilens.new([ilen // model.encoder_reduction_factor for ilen in ilens])
+            if (
+                hasattr(model, "encoder_reduction_factor")
+                and model.encoder_reduction_factor > 1
+            ):
+                ilens_in = ilens.new(
+                    [ilen // model.encoder_reduction_factor for ilen in ilens]
+                )
             else:
                 ilens_in = ilens
             # work for speech to speech model's input
             if "task_name" in sample and sample["task_name"] == "s2s":
                 m = None
-                if hasattr(model, 'encoder_prenet'):
+                if hasattr(model, "encoder_prenet"):
                     m = model.encoder_prenet
-                elif hasattr(model, 'speech_encoder_prenet'):
+                elif hasattr(model, "speech_encoder_prenet"):
                     m = model.speech_encoder_prenet
                 if m is not None and isinstance(m, SpeechEncoderPrenet):
                     ilens_in = m.get_src_lengths(ilens_in)
             # calculate for encoder-decoder
             if "encoder-decoder" in self.modules_applied_guided_attn:
-                attn = [att_l[:, : self.num_heads_applied_guided_attn] for att_l in attn]
+                attn = [
+                    att_l[:, : self.num_heads_applied_guided_attn] for att_l in attn
+                ]
                 att_ws = torch.cat(attn, dim=1)  # (B, H*L, T_out, T_in)
                 enc_dec_attn_loss = self.attn_criterion(att_ws, ilens_in, olens_in)
                 loss = loss + enc_dec_attn_loss
 
-        return loss, l1_loss, l2_loss, bce_loss, enc_dec_attn_loss
+        return loss, l1_loss, l2_loss, bce_loss, enc_dec_attn_loss, ce_loss
 
     @classmethod
     def reduce_metrics(cls, logging_outputs) -> None:
@@ -220,10 +281,9 @@ class TexttoSpeechLoss(FairseqCriterion):
         l1_loss_sum = sum(log.get("l1_loss", 0) for log in logging_outputs)
         l2_loss_sum = sum(log.get("l2_loss", 0) for log in logging_outputs)
         bce_loss_sum = sum(log.get("bce_loss", 0) for log in logging_outputs)
+        ce_loss_sum = sum(log.get("ce_loss", 0) for log in logging_outputs)
         sample_size = max(1, sum(log.get("sample_size", 0) for log in logging_outputs))
-        metrics.log_scalar(
-            "loss", loss_sum / sample_size, sample_size, 1, round=5
-        )
+        metrics.log_scalar("loss", loss_sum / sample_size, sample_size, 1, round=5)
         encoder_alpha_sum = sum(log.get("encoder_alpha", 0) for log in logging_outputs)
         decoder_alpha_sum = sum(log.get("decoder_alpha", 0) for log in logging_outputs)
         ngpu = sum(log.get("ngpu", 0) for log in logging_outputs)
@@ -238,6 +298,9 @@ class TexttoSpeechLoss(FairseqCriterion):
             "bce_loss", bce_loss_sum / sample_size, sample_size, 2, round=5
         )
         metrics.log_scalar(
+            "ce_loss", ce_loss_sum / sample_size, sample_size, 2, round=5
+        )
+        metrics.log_scalar(
             "encoder_alpha", encoder_alpha_sum / sample_size, sample_size, round=5
         )
         metrics.log_scalar(
@@ -245,11 +308,15 @@ class TexttoSpeechLoss(FairseqCriterion):
         )
 
         if "enc_dec_attn_loss" in logging_outputs[0]:
-            enc_dec_attn_loss_sum = sum(log.get("enc_dec_attn_loss", 0) for log in logging_outputs)
-            metrics.log_scalar(
-                "enc_dec_attn_loss", enc_dec_attn_loss_sum / sample_size, sample_size, round=8
+            enc_dec_attn_loss_sum = sum(
+                log.get("enc_dec_attn_loss", 0) for log in logging_outputs
             )
-
+            metrics.log_scalar(
+                "enc_dec_attn_loss",
+                enc_dec_attn_loss_sum / sample_size,
+                sample_size,
+                round=8,
+            )
 
     @staticmethod
     def logging_outputs_can_be_summed() -> bool:
@@ -260,11 +327,15 @@ class TexttoSpeechLoss(FairseqCriterion):
         """
         return True
 
+
 class Tacotron2Loss(torch.nn.Module):
     """Loss function module for Tacotron2."""
 
     def __init__(
-        self, use_masking=True, use_weighted_masking=False, bce_pos_weight=20.0
+        self,
+        use_masking=True,
+        use_weighted_masking=False,
+        bce_pos_weight=20.0,
     ):
         """Initialize Tactoron2 loss module.
 
@@ -289,11 +360,23 @@ class Tacotron2Loss(torch.nn.Module):
         self.bce_criterion = torch.nn.BCEWithLogitsLoss(
             reduction=reduction, pos_weight=torch.tensor(bce_pos_weight)
         )
+        self.ce_criterion = torch.nn.CrossEntropyLoss(reduction=reduction)
 
         # NOTE(kan-bayashi): register pre hook function for the compatibility
         self._register_load_state_dict_pre_hook(self._load_state_dict_pre_hook)
 
-    def forward(self, after_outs, before_outs, logits, ys, labels, olens):
+    def forward(
+        self,
+        after_outs,
+        before_outs,
+        logits,
+        special_logits,
+        ys,
+        labels,
+        olens,
+        special_token_ids=None,
+        reduction_factor=1,
+    ):
         """Calculate forward propagation.
 
         Args:
@@ -303,6 +386,8 @@ class Tacotron2Loss(torch.nn.Module):
             ys (Tensor): Batch of padded target features (B, Lmax, odim).
             labels (LongTensor): Batch of the sequences of stop token labels (B, Lmax).
             olens (LongTensor): Batch of the lengths of each target (B,).
+            special_token_ids (LongTensor): A sequence of special token ids (N,).
+            reduction_factor (int): Reduction factor.
 
         Returns:
             Tensor: L1 loss value.
@@ -312,7 +397,14 @@ class Tacotron2Loss(torch.nn.Module):
         """
         # make mask and apply it
         if self.use_masking:
+            # Apply masks to the task control tokens
             masks = make_non_pad_mask(olens).unsqueeze(-1).to(ys.device)
+            special_token_frames = (
+                special_token_ids.size(0) * reduction_factor
+                if special_token_ids is not None
+                else 0
+            )
+            masks[:, :special_token_frames, :] = False  # mask special token frames
             ys = ys.masked_select(masks)
             after_outs = after_outs.masked_select(masks)
             before_outs = before_outs.masked_select(masks)
@@ -325,6 +417,13 @@ class Tacotron2Loss(torch.nn.Module):
             before_outs, ys
         )
         bce_loss = self.bce_criterion(logits, labels)
+
+        # Add the CE loss for the special tokens
+        if special_token_ids is not None:
+            _special_token_ids = special_token_ids.unsqueeze(0).expand(
+                special_logits.size(0), -1
+            )  # (B, N)
+            ce_loss = self.ce_criterion(special_logits.permute(0, 2, 1), _special_token_ids)
 
         # make weighted mask and apply it
         if self.use_weighted_masking:
@@ -342,7 +441,7 @@ class Tacotron2Loss(torch.nn.Module):
                 .sum()
             )
 
-        return l1_loss, mse_loss, bce_loss
+        return l1_loss, mse_loss, bce_loss, ce_loss
 
     def _load_state_dict_pre_hook(
         self,
@@ -366,6 +465,7 @@ class Tacotron2Loss(torch.nn.Module):
         key = prefix + "bce_criterion.pos_weight"
         if key not in state_dict:
             state_dict[key] = self.bce_criterion.pos_weight
+
 
 class GuidedMultiHeadAttentionLoss(GuidedAttentionLoss):
     """Guided attention loss function module for multi head attention.
@@ -405,7 +505,9 @@ class GuidedMultiHeadAttentionLoss(GuidedAttentionLoss):
         n_batches = len(ilens)
         max_ilen = max(ilens)
         max_olen = max(olens)
-        guided_attn_masks = torch.zeros((n_batches, max_olen, max_ilen), device=olens.device)
+        guided_attn_masks = torch.zeros(
+            (n_batches, max_olen, max_ilen), device=olens.device
+        )
         for idx, (ilen, olen) in enumerate(zip(ilens, olens)):
             guided_attn_masks[idx, :olen, :ilen] = self._make_guided_attention_mask(
                 ilen, olen, self.sigma
@@ -414,7 +516,10 @@ class GuidedMultiHeadAttentionLoss(GuidedAttentionLoss):
 
     @staticmethod
     def _make_guided_attention_mask(ilen, olen, sigma):
-        grid_x, grid_y = torch.meshgrid(torch.arange(olen, device=olen.device), torch.arange(ilen, device=olen.device))
+        grid_x, grid_y = torch.meshgrid(
+            torch.arange(olen, device=olen.device),
+            torch.arange(ilen, device=olen.device),
+        )
         grid_x, grid_y = grid_x.float(), grid_y.float()
         return 1.0 - torch.exp(
             -((grid_y / ilen - grid_x / olen) ** 2) / (2 * (sigma**2))

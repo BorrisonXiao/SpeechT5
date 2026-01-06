@@ -49,6 +49,7 @@ class SpeechT5Criterion(FairseqCriterion):
         loss_type="L1",
         bce_pos_weight=5.0,
         bce_loss_lambda=1.0,
+        ce_loss_lambda=1.0,
         use_guided_attn_loss=False,
         num_heads_applied_guided_attn=2,
         ce_weight=1.0,
@@ -66,6 +67,7 @@ class SpeechT5Criterion(FairseqCriterion):
             loss_type,
             bce_pos_weight,
             bce_loss_lambda,
+            ce_loss_lambda,
             use_guided_attn_loss,
             num_heads_applied_guided_attn=num_heads_applied_guided_attn,
         )
@@ -222,6 +224,7 @@ class SpeechT5Criterion(FairseqCriterion):
                 l1_loss_sum = sum(log.get("l1_loss", 0) for log in t2s_logging_output)
                 l2_loss_sum = sum(log.get("l2_loss", 0) for log in t2s_logging_output)
                 bce_loss_sum = sum(log.get("bce_loss", 0) for log in t2s_logging_output)
+                ce_loss_sum = sum(log.get("ce_loss", 0) for log in t2s_logging_output)
                 sample_size = max(1, sum(log.get("sample_size", 0) for log in t2s_logging_output))
                 metrics.log_scalar(
                     "t2s_loss", loss_sum / sample_size, sample_size, 1, round=5
@@ -238,6 +241,9 @@ class SpeechT5Criterion(FairseqCriterion):
                 )
                 metrics.log_scalar(
                     "t2s_bce_loss", bce_loss_sum / sample_size, sample_size, 2, round=5
+                )
+                metrics.log_scalar(
+                    "t2s_ce_loss", ce_loss_sum / sample_size, sample_size, 2, round=5
                 )
                 metrics.log_scalar(
                     "t2s_encoder_alpha", encoder_alpha_sum / sample_size, sample_size, round=5

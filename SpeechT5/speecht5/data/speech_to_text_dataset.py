@@ -79,7 +79,6 @@ class SpeechToTextDataset(FairseqDataset):
         label_paths: List[str],
         src_lang: str = "<|en|>",
         tgt_lang: str = "<|en|>",
-        task: str = "<|asr|>",
         label_processors: Optional[List[Any]] = None,
         max_keep_sample_size: Optional[int] = None,
         min_keep_sample_size: Optional[int] = None,
@@ -100,7 +99,7 @@ class SpeechToTextDataset(FairseqDataset):
         # Multi-tasking
         self.src_lang = src_lang
         self.tgt_lang = tgt_lang
-        self.task = task
+        self.task = "<|asr|>"
 
         self.num_labels = len(label_paths)
         self.label_processors = label_processors

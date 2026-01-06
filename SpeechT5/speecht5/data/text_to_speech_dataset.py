@@ -145,6 +145,8 @@ class TextToSpeechDataset(FairseqDataset):
         manifest_path: str,
         sample_rate: float,
         label_paths: List[str],
+        src_lang: str = "<|en|>",
+        tgt_lang: str = "<|en|>",
         label_processors: Optional[List[Any]] = None,
         max_keep_sample_size: Optional[int] = None,
         min_keep_sample_size: Optional[int] = None,
@@ -162,6 +164,11 @@ class TextToSpeechDataset(FairseqDataset):
         self.shuffle = shuffle
         self.src_dict = src_dict
         self.tokenizer = tokenizer
+        
+        # Multi-tasking
+        self.src_lang = src_lang
+        self.tgt_lang = tgt_lang
+        self.task = "<|tts|>"
 
         self.num_labels = len(label_paths)
         self.label_processors = label_processors
@@ -234,7 +241,17 @@ class TextToSpeechDataset(FairseqDataset):
         fbank_sizes = [len(s) for s in fbanks]
 
         collated_fbanks = _collate_frames(fbanks)
-        collated_fbanks_size = torch.tensor(fbank_sizes, dtype=torch.long)
+        # Added the placeholder frames for the special tokens <|tts|>, <|src_lang|>, <|tgt_lang|>
+        collated_fbanks = torch.cat(
+            [
+                collated_fbanks.new_zeros(
+                    (collated_fbanks.shape[0], 3 * self.reduction_factor, collated_fbanks.shape[2])
+                ),
+                collated_fbanks,
+            ],
+            dim=1,
+        )
+        collated_fbanks_size = torch.tensor(fbank_sizes, dtype=torch.long) + 3 * self.reduction_factor
 
         # thin out frames for reduction factor (B, Lmax, odim) ->  (B, Lmax//r, odim)
         if self.reduction_factor > 1:
@@ -266,6 +283,11 @@ class TextToSpeechDataset(FairseqDataset):
             "tgt_lengths": collated_fbanks_size_in,
             "spkembs": spkembs,
             "task_name": "t2s",
+            "special_token_ids": torch.LongTensor([
+                self.src_dict.index(self.task),
+                self.src_dict.index(self.src_lang),
+                self.src_dict.index(self.tgt_lang),
+            ]),
         }
         batch = {
             "id": torch.LongTensor([s["id"] for s in samples]),

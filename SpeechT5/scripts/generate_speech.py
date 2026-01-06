@@ -163,6 +163,7 @@ def _main(cfg: DictConfig, output_file):
     # # --- END MODIFIED BLOCK ---
 
     # loading the dataset should happen after the checkpoint has been loaded so we can give it the saved task config
+    # TODO (Cihan): Specify the language ids
     task.load_dataset(cfg.dataset.gen_subset, task_cfg=saved_cfg['task'])
 
     # optimize ensemble for generation

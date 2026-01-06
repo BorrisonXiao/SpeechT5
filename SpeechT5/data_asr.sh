@@ -9,16 +9,16 @@ log() {
 }
 
 data_dir=data
-org_data_dir=/home/ec2-user/LibriSpeech
-xvector_dir=${data_dir}/xvectors.zip
-dict_path=data/text/bins/dict.txt
+org_data_dir=/export/fs06/cxiao7/LibriSpeech
+xvector_dir=/home/cxiao7/research/mult5/SpeechT5/SpeechT5/data/xvectors.zip
+dict_path=data/downloads/dict.txt
 
-stage=2
+stage=1
 stop_stage=2
 
 train_sets="train-clean-100"
 dev_sets="dev-clean"
-test_sets="test-clean"
+test_sets="test-clean test-other"
 
 tgt_train_set_name="train-clean-100"
 tgt_dev_set_name="dev-clean"
@@ -32,56 +32,56 @@ if [ $stage -le 0 ] && [ $stop_stage -ge 0 ]; then
     mkdir -p ${tsv_dir}/raw/train
     mkdir -p ${tsv_dir}/raw/test
 
-    set -x
-    # Process the valid set
-    for split in ${dev_sets}; do
-        # Create a proxy directory for the split
-        ln -sfv ${org_data_dir}/${split} ${tsv_dir}/raw/valid
-    done
-    cp ${xvector_dir} ${tsv_dir}/raw/valid
-    python fairseq/examples/wav2vec/wav2vec_manifest.py ${tsv_dir}/raw/valid --dest ${tsv_dir}/valid --ext flac --valid-percent 0
-    # Rename the file for training
-    cp ${tsv_dir}/valid/train.tsv ${tsv_dir}/${tgt_dev_set_name}.tsv
+    # set -x
+    # # Process the valid set
+    # for split in ${dev_sets}; do
+    #     # Create a proxy directory for the split
+    #     ln -sfv ${org_data_dir}/${split} ${tsv_dir}/raw/valid
+    # done
+    # cp ${xvector_dir} ${tsv_dir}/raw/valid
+    # python fairseq/examples/wav2vec/wav2vec_manifest.py ${tsv_dir}/raw/valid --dest ${tsv_dir}/valid --ext flac --valid-percent 0
+    # # Rename the file for training
+    # cp ${tsv_dir}/valid/train.tsv ${tsv_dir}/${tgt_dev_set_name}.tsv
 
-    # Process the test set
-    for split in ${test_sets}; do
-        # Create a proxy directory for the split
-        mkdir -p ${tsv_dir}/raw/test/${split}
-        ln -sfv ${org_data_dir}/${split}/* ${tsv_dir}/raw/test/${split}
-        python fairseq/examples/wav2vec/wav2vec_manifest.py ${tsv_dir}/raw/test/${split} --dest ${tsv_dir}/test/${split} --ext flac --valid-percent 0
-        # Rename the file
-        cp ${tsv_dir}/test/${split}/train.tsv ${tsv_dir}/${split}.tsv
-        cp ${xvector_dir} ${tsv_dir}/raw/test/${split}
-    done
+    # # Process the test set
+    # for split in ${test_sets}; do
+    #     # Create a proxy directory for the split
+    #     mkdir -p ${tsv_dir}/raw/test/${split}
+    #     ln -sfv ${org_data_dir}/${split}/* ${tsv_dir}/raw/test/${split}
+    #     python fairseq/examples/wav2vec/wav2vec_manifest.py ${tsv_dir}/raw/test/${split} --dest ${tsv_dir}/test/${split} --ext flac --valid-percent 0
+    #     # Rename the file
+    #     cp ${tsv_dir}/test/${split}/train.tsv ${tsv_dir}/${split}.tsv
+    #     cp ${xvector_dir} ${tsv_dir}/raw/test/${split}
+    # done
 
     # Process the training set
     for split in ${train_sets}; do
         # Create a proxy directory for the split
         ln -sfv ${org_data_dir}/${split} ${tsv_dir}/raw/train
     done
-    ln -sfv ${org_data_dir} ${tsv_dir}/raw/train
     python fairseq/examples/wav2vec/wav2vec_manifest.py ${tsv_dir}/raw/train --dest ${tsv_dir}/train --ext flac --valid-percent 0
     # Rename the file for training
     cp ${xvector_dir} ${tsv_dir}/raw/train
     cp ${tsv_dir}/train/train.tsv ${tsv_dir}/${tgt_train_set_name}.tsv
 
     # Add speaker embedding to the last column
-    for split in ${tgt_train_set_name} ${tgt_dev_set_name} ${test_sets}; do
+    # for split in ${tgt_train_set_name} ${tgt_dev_set_name} ${test_sets}; do
     # for split in "${tgt_train_set_name}" ${test_sets}; do
-    # for split in "test-clean"; do
+    for split in ${tgt_train_set_name}; do
         python scripts/integrate_spkembs.py \
             -i ${tsv_dir}/${split}.tsv \
             --dset librispeech \
-            --xvectors ${data_dir}/xvectors.zip \
+            --xvectors ${xvector_dir} \
             -o ${tsv_dir}/${split}_spk.tsv
     done
 fi
 
 if [ $stage -le 1 ] && [ $stop_stage -ge 1 ]; then
     log "Stage 1: Prepare the ASR data for fine-tuning..."
-    for split in ${tgt_train_set_name} ${tgt_dev_set_name} ${test_sets}; do
+    # for split in ${tgt_train_set_name} ${tgt_dev_set_name} ${test_sets}; do
     # for split in "speech_valid"; do
     # for split in ${test_sets}; do
+    for split in ${tgt_train_set_name}; do
         # Generate the word-level labels
         python fairseq/examples/wav2vec/libri_labels.py ${tsv_dir}/${split}.tsv --output-dir ${tsv_dir} --output-name ${split}
         # Lowercase the labels due to the TTS data

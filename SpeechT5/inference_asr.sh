@@ -40,7 +40,7 @@ export PYTORCH_CUDA_ALLOC_CONF=garbage_collection_threshold:0.8
 # Disable P2P to avoid hangs (doesn't quite work though)
 # export NCCL_P2P_DISABLE=1
 
-export CUDA_VISIBLE_DEVICES=7
+# export CUDA_VISIBLE_DEVICES=7
 
 set -eou pipefail
 
@@ -51,7 +51,7 @@ log() {
 }
 
 data_dir=data
-spm_model=/home/ec2-user/mult5/SpeechT5/models/spm_char.model
+spm_model=/home/cxiao7/research/mult5/SpeechT5/SpeechT5/models/spm_char.model
 expdir=exp
 
 lab_dir=${data_dir}/ASR/asr
@@ -59,14 +59,15 @@ lab_dir=${data_dir}/ASR/asr
 eval_script=scripts/wer.py
 
 # CHECKPOINT_PATH=exp/asr/v1.4/checkpoint_best.pt
-CHECKPOINT_PATH=/home/ec2-user/t5/SpeechT5/exp/asr/v3-20251207092620/checkpoint5.pt
-tag=v3-checkpoint5
+# CHECKPOINT_PATH=/home/cxiao7/research/mult5p4/SpeechT5/exp/asr/v4-20251210024750/checkpoint_13_45000.pt
+CHECKPOINT_PATH=/home/cxiao7/research/mult5p4/SpeechT5/exp/asr/v5-20251211063748/checkpoint_best.pt
+tag=v5-checkpoint_best
 # CHECKPOINT_PATH=exp/asr/v1.1/checkpoint_2_5000.pt
 # CHECKPOINT_PATH=exp/asr/v1.3/checkpoint_5_16000.pt
 DATA_ROOT=${lab_dir}
 # SUBSETS="dev_clean dev_other test-clean test-other"  # List of subsets
 # SUBSETS="test-clean test-other" # List of subsets
-SUBSETS="test-clean" # List of subsets
+SUBSETS="test-other" # List of subsets
 # SUBSETS="speech_train" # List of subsets
 BPE_TOKENIZER=$spm_model
 LABEL_DIR=$DATA_ROOT

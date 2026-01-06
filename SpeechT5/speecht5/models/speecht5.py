@@ -103,7 +103,12 @@ class T5TransformerModel(FairseqEncoderDecoderModel):
             self.sync_matrix = torch.nn.Identity()
         self.sync_matrix_len = getattr(args, 'sync_matrix_len', None)
         
-        self.clear_cache_threshold = getattr(args, 'sync_matrix_len', 32768)
+        # Add the down projection layer for projecting text embedding to speech input feature dimension
+        self.text_to_speech_proj = torch.nn.Linear(
+            args.encoder_embed_dim, args.input_feat_per_channel
+        )
+        
+        self.clear_cache_threshold = getattr(args, 'clear_cache_threshold', 32768)
         self.clear_cache_verbose = CLEAR_CACHE_VERBOSE
 
         self.use_codebook = args.use_codebook
@@ -840,7 +845,7 @@ class T5TransformerModel(FairseqEncoderDecoderModel):
         
         return encoder_input, encoder_padding_mask
 
-    def forward(self, source=None, src_tokens=None, src_lengths=None, prev_output_tokens=None, tgt_lengths=None, spkembs=None, target_list=None, task_name=None, padding_mask=None, only_hubert=False, only_ctc=False, feature_only=False, tgt_enc_layer=None, mask=True):
+    def forward(self, source=None, src_tokens=None, src_lengths=None, prev_output_tokens=None, tgt_lengths=None, spkembs=None, target_list=None, task_name=None, padding_mask=None, only_hubert=False, only_ctc=False, feature_only=False, tgt_enc_layer=None, mask=True, special_token_ids=None):
         """
         The forward method inherited from the base class has a **kwargs
         argument in its input, which is not supported in torchscript. This
@@ -970,7 +975,20 @@ class T5TransformerModel(FairseqEncoderDecoderModel):
             # integrate speaker embedding
             if self.spk_embed_integration_type == "pre" and self.spk_embed_dim is not None:
                 # Decoder Prenet
-                prev_output_tokens, tgt_mask = self.speech_decoder_prenet(prev_output_tokens, tgt_lengths, spkembs)
+                if task_name == "t2s":
+                    # Integrate the special tokens for task control
+                    # Assert the placeholders are present in prev_output_tokens
+                    assert (prev_output_tokens[:, 1:1 + special_token_ids.shape[0]] == 0).all(), "Placeholders for task control embeddings are not found in prev_output_tokens"
+                    # Replace the placeholders with the special token embeddings
+                    prev_output_tokens, tgt_mask = self.speech_decoder_prenet(prev_output_tokens, tgt_lengths, spkembs)
+                    special_token_embeds = self.text_decoder_prenet(special_token_ids.unsqueeze(0).repeat(prev_output_tokens.size(0), 1))[0]
+                    prefix = prev_output_tokens[:, :1, :]
+                    suffix = prev_output_tokens[:, 1 + special_token_ids.shape[0]:, :]
+                    # Avoids in-place operation for gradient computation
+                    prev_output_tokens = torch.cat([prefix, special_token_embeds, suffix], dim=1)
+                    # prev_output_tokens[:, 1:1 + special_token_ids.shape[0], :] = special_token_embeds
+                else:
+                    prev_output_tokens, tgt_mask = self.speech_decoder_prenet(prev_output_tokens, tgt_lengths, spkembs)
             else:
                 if self.spk_embed_dim is not None:
                     encoder_output["encoder_out"] = [self._integrate_with_spk_embed(
@@ -1033,7 +1051,9 @@ class T5TransformerModel(FairseqEncoderDecoderModel):
             if target_list is not None:
                 return hubert_results, (self.speech_decoder_postnet(decoder_output) + (extra['attn'][0],))
             else:
-                return self.speech_decoder_postnet(decoder_output) + (extra['attn'][0],)
+                # Run a text_decoder_postnet on the special tokens
+                special_logits = self.text_decoder_postnet(decoder_output[:, :special_token_ids.shape[0], :])
+                return self.speech_decoder_postnet(decoder_output) + (extra['attn'][0],) + (special_logits,)
 
     def _integrate_with_speaker_cls(self, pad_input, encoder_input, encoder_padding_mask=None, cls_first=True):
         """
@@ -1165,7 +1185,7 @@ class T5TransformerModel(FairseqEncoderDecoderModel):
             if hasattr(self, "speaker_decoder_postnet"): del self.speaker_decoder_postnet
             if hasattr(self, "speech_encoder_prenet"): del self.speech_encoder_prenet
             if hasattr(self, "text_decoder_prenet"): del self.text_decoder_prenet
-            if hasattr(self, "text_decoder_postnet"): del self.text_decoder_postnet
+            # if hasattr(self, "text_decoder_postnet"): del self.text_decoder_postnet
             if hasattr(self, "speech_encoder_postnet"): del self.speech_encoder_postnet
             if hasattr(self.encoder, "proj"): self.encoder.proj = None
             if hasattr(self, "projection"): del self.projection

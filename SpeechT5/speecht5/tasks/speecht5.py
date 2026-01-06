@@ -37,7 +37,7 @@ from fairseq.tasks.hubert_pretraining import LabelEncoder
 
 logger = logging.getLogger(__name__)
 
-TASK_NAME = ["s2t", "t2s", "s2s", "s2c", "pretrain"]
+TASK_NAME = ["s2t", "t2s", "s2s", "s2c", "pretrain", "mtl-asr-tts"]
 
 @register_task("speecht5")
 class SpeechT5Task(LegacyFairseqTask):
@@ -283,8 +283,10 @@ class SpeechT5Task(LegacyFairseqTask):
         # Used for filter size
         if self.t5_task in ['s2t', 't2s', 's2s', 's2c']:
             self.max_pos = [self.args.max_speech_positions * 256]
-        elif self.t5_task == 'pretrain':
+        elif self.t5_task in ['pretrain']:
             self.max_pos = [self.args.max_speech_positions * 256, self.args.max_text_positions]
+        elif self.t5_task in ['mtl-asr-tts']:
+            self.max_pos = [self.args.max_speech_positions * 256, self.args.max_speech_positions * 256]
 
         self.mask_idx = self.dicts["text"].add_symbol("<mask>")
         # add blank token for ctc
@@ -399,6 +401,79 @@ class SpeechT5Task(LegacyFairseqTask):
                 tgt_dict=self.dicts["text"],
                 max_length=max_length
             )
+        elif self.t5_task == "mtl-asr-tts":
+            is_train_split = ("train" in split)
+            finetune_datasets = []
+            asr_split, tts_split = split.split('|')
+            
+            ## For speech to text task
+            bpe_tokenizer = self.build_bpe(self.args)
+            manifest = f"{self.args.data}/{asr_split}.tsv"
+            procs = [LabelEncoder(self.dicts["text"])]
+            paths = [f"{self.args.hubert_label_dir}/{asr_split}.txt"]
+            finetune_datasets.append(
+                SpeechToTextDataset(
+                    manifest,
+                    sample_rate=self.args.sample_rate,
+                    label_paths=paths,
+                    label_processors=procs,
+                    max_keep_sample_size=self.max_pos[0] if self.args.max_speech_sample_size is None else self.args.max_speech_sample_size,
+                    min_keep_sample_size=self.args.min_speech_sample_size,
+                    normalize=self.args.normalize,
+                    store_labels=False,
+                    tgt_dict=self.dicts["text"],
+                    tokenizer=bpe_tokenizer,
+                )
+            )
+            sample_ratios.append(sum([finetune_datasets[0].size(i) for i in range(len(finetune_datasets[0]))]))
+            
+            ## For text to speech task
+            from fairseq.data import ConcatDataset
+            bpe_tokenizer = self.build_bpe(self.args)
+            procs = [LabelEncoder(self.dicts["text"])]
+            t2s_datasets = [
+                TextToSpeechDataset(
+                    manifest_path=f"{self.args.data}/{tts_split}.tsv",
+                    sample_rate=self.args.sample_rate,
+                    label_paths=[f"{self.args.hubert_label_dir}/{tts_split}.txt"],
+                    label_processors=procs,
+                    max_keep_sample_size=self.max_pos[1],
+                    normalize=self.args.normalize,
+                    store_labels=False,
+                    src_dict=self.dicts["text"],
+                    tokenizer=bpe_tokenizer,
+                    reduction_factor=self.args.reduction_factor,
+                )
+                for name in split.split(",")
+            ]
+            finetune_datasets.append(ConcatDataset(t2s_datasets) if len(t2s_datasets) > 1 else t2s_datasets[0])
+            sample_ratios.append(sum(finetune_datasets[1].sizes))
+            logger.info(
+                "Task: {0}, Loaded {1} samples of denoising_dataset".format(
+                    'bart',
+                    len(finetune_datasets[1]),
+                )
+            )
+
+            logger.info('token ratio is ' + str(sample_ratios))
+            if self.args.batch_ratio is not None:
+                batch_ratio = eval(self.args.batch_ratio)
+                assert len(batch_ratio) == len(sample_ratios)
+                sample_ratios = [sample_ratios[i] / batch_ratio[i] for i in range(len(sample_ratios))]
+            else:
+                batch_ratio = None
+            max_size = max(sample_ratios)
+            sample_ratios = [max_size / r for r in sample_ratios]
+            if hasattr(self.args, "sample_ratios") and self.args.sample_ratios is not None:
+                sample_ratios = eval(self.args.sample_ratios)
+            if is_train_split:
+                self.datasets[split] = MultitaskDataset(
+                    finetune_datasets, sample_ratios, batch_ratio
+                )
+            else:
+                self.datasets[split] = MultitaskDataset(
+                    finetune_datasets, batch_ratio=batch_ratio
+                )
         elif self.t5_task == "pretrain":
             is_train_split = ("train" in split)
             pretrain_datasets = []

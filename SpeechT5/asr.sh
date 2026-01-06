@@ -48,8 +48,8 @@ log() {
 
 data_dir=data
 expdir=exp
-spm_model=/home/ec2-user/mult5/SpeechT5/models/spm_char.model
-pretrain_model=/home/ec2-user/mult5/SpeechT5/exp/pretrain/v3/checkpoint_last.pt
+spm_model=/home/cxiao7/research/mult5/SpeechT5/SpeechT5/models/spm_char.model
+pretrain_model=/home/cxiao7/research/mult5p4/SpeechT5/data/downloads/p4_v2/pretrain/exp/checkpoint_best.pt
 
 stage=1
 stop_stage=1
@@ -63,7 +63,7 @@ if [ $stage -le 1 ] && [ $stop_stage -ge 1 ]; then
     JOBID=$(date +%Y%m%d%H%M%S)
     # JOBID=debug
     DATA_ROOT=${lab_dir}
-    SAVE_DIR=${expdir}/asr/v3-${JOBID}
+    SAVE_DIR=${expdir}/asr/v6-fixed-last-${JOBID}
     LABEL_DIR=${lab_dir}
     TRAIN_SET="train-clean-100"
     VALID_SET="dev-clean"
@@ -84,7 +84,7 @@ if [ $stage -le 1 ] && [ $stop_stage -ge 1 ]; then
         --log-format simple \
         --seed 1337 \
         --fp16 \
-        --fp16-scale-tolerance=0.2 \
+        --fp16-scale-tolerance=0.05 \
         --fp16-init-scale 32 \
         --gradient-checkpointing \
         \
@@ -93,7 +93,7 @@ if [ $stage -le 1 ] && [ $stop_stage -ge 1 ]; then
         --sample-rate 16000 \
         --sync-matrix-len 512 \
         --num-workers 0 \
-        --max-tokens 4000000 \
+        --max-tokens 3600000 \
         --update-freq 1 \
         --bpe-tokenizer ${spm_model} \
         \
@@ -133,7 +133,7 @@ if [ $stage -le 1 ] && [ $stop_stage -ge 1 ]; then
         --feature-grad-mult 1.0 \
         --best-checkpoint-metric s2t_accuracy \
         --maximize-best-checkpoint-metric \
-        --clear-cache-threshold 35840 \
+        --clear-cache-threshold 23000 \
+        --finetune-from-model ${PT_CHECKPOINT_PATH} \
         --load-checkpoint-on-all-dp-ranks
 fi
-        # --finetune-from-model ${PT_CHECKPOINT_PATH} \

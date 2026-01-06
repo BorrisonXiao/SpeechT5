@@ -39,7 +39,7 @@ export PYTORCH_CUDA_ALLOC_CONF=garbage_collection_threshold:0.8
 # Disable P2P to avoid hangs (doesn't quite work though)
 # export NCCL_P2P_DISABLE=1
 
-export CUDA_VISIBLE_DEVICES=7
+# export CUDA_VISIBLE_DEVICES=7
 
 set -eou pipefail
 
@@ -50,15 +50,13 @@ log() {
 }
 
 data_dir=data/libriTTS
-spm_model=/home/ec2-user/mult5/SpeechT5/models/spm_char.model
+spm_model=/home/cxiao7/research/mult5/SpeechT5/SpeechT5/models/spm_char.model
 expdir=exp
 
 lab_dir=${data_dir}/tts
 
-# CHECKPOINT_PATH=exp/tts/20251024112042/checkpoint_4_18000.pt
-# tag=v1.0-checkpoint_4_18000
-CHECKPOINT_PATH=/home/ec2-user/t5/SpeechT5/exp/tts/v1/checkpoint_84_28000.pt
-tag=v1-checkpoint_84_28000
+CHECKPOINT_PATH=exp/tts/20251219101956/checkpoint_best.pt
+tag=v4-checkpoint_best
 DATA_ROOT=${lab_dir}
 SUBSETS="test-clean" # List of subsets
 # SUBSETS="speech_train" # List of subsets
@@ -86,7 +84,7 @@ for SUBSET in $SUBSETS; do
         done
         mv "$demo" "${demo}.${i}"
     fi
-    python3 scripts/generate_speech.py ${DATA_ROOT} \
+    python scripts/generate_speech.py ${DATA_ROOT} \
         --gen-subset ${SUBSET} \
         --bpe-tokenizer ${BPE_TOKENIZER} \
         --user-dir ${USER_DIR} \

@@ -47,7 +47,7 @@ log() {
     echo -e "$(date '+%Y-%m-%d %H:%M:%S') (${fname}:${BASH_LINENO[0]}:${FUNCNAME[1]}) $*"
 }
 
-data_dir=data/libriTTS
+data_dir=data/mtl-asr-tts
 expdir=exp
 spm_model=/home/cxiao7/research/mult5/SpeechT5/SpeechT5/models/spm_char.model
 pretrain_model=data/downloads/p4_v2/pretrain/exp/checkpoint_best.pt
@@ -55,17 +55,17 @@ pretrain_model=data/downloads/p4_v2/pretrain/exp/checkpoint_best.pt
 stage=1
 stop_stage=1
 
-lab_dir=${data_dir}/tts
+lab_dir=${data_dir}/asr-tts
 
 if [ $stage -le 1 ] && [ $stop_stage -ge 1 ]; then
-    log "Stage 1: Run the TTS fine-tuning script..."
-    JOBID=v5-$(date +%Y%m%d%H%M%S)
-    # JOBID=debug
+    log "Stage 1: Run the MTL fine-tuning script..."
+    JOBID=v0-$(date +%Y%m%d%H%M%S)
+    JOBID=debug
     DATA_ROOT=${lab_dir}
-    SAVE_DIR=${expdir}/tts/${JOBID}
+    SAVE_DIR=${expdir}/mtl-asr-tts/${JOBID}
     LABEL_DIR=${lab_dir}
-    TRAIN_SET="train-clean-460"
-    VALID_SET="dev"
+    TRAIN_SET="asr-train-clean-100|tts-train-clean-460"
+    VALID_SET="asr-dev-clean|tts-dev"
     PT_CHECKPOINT_PATH=${pretrain_model}
 
     mkdir -p ${SAVE_DIR}
@@ -87,7 +87,7 @@ if [ $stage -le 1 ] && [ $stop_stage -ge 1 ]; then
         --gradient-checkpointing \
         \
         --task speecht5 \
-        --t5-task t2s \
+        --t5-task mtl-asr-tts \
         --sample-rate 16000 \
         --sync-matrix-len 512 \
         --num-workers 0 \
@@ -116,7 +116,7 @@ if [ $stage -le 1 ] && [ $stop_stage -ge 1 ]; then
         --warmup-updates 500 \
         --feature-grad-mult 1.0 \
         \
-        --max-update 64000 \
+        --max-update 160000 \
         --max-text-positions 600 \
         --min-speech-sample-size 1056 \
         --max-speech-sample-size 480256 \
@@ -137,7 +137,7 @@ if [ $stage -le 1 ] && [ $stop_stage -ge 1 ]; then
         \
         --keep-last-epochs 2 \
         --restore-file ${PT_CHECKPOINT_PATH} \
-        --clear-cache-threshold 23000 \
+        --clear-cache-threshold 36000 \
         --load-checkpoint-on-all-dp-ranks
 fi
         # --finetune-from-model ${PT_CHECKPOINT_PATH} \
