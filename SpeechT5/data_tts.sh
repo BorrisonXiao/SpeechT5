@@ -9,7 +9,7 @@ log() {
 }
 
 data_dir=data/libriTTS
-org_data_dir=/export/fs06/cxiao7/LibriTTS
+org_data_dir=/export/fs06/cxiao7/LibriTTS-debug
 xvector_dir=/home/cxiao7/research/mult5/SpeechT5/SpeechT5/data/xvectors.zip
 dict_path=data/ASR/asr/dict.txt
 
@@ -17,13 +17,13 @@ stage=0
 stop_stage=2
 
 # train_sets="train-clean-100 train-clean-360 train-other-500"
-train_sets="train-clean-100"
-dev_sets="dev-clean dev-other"
-test_sets="test-clean test-other"
+train_sets="train-debug-100-10"
+dev_sets="dev-debug"
+test_sets="test-clean"
 fs=16000
 
-tgt_train_set_name="train-clean-100"
-tgt_dev_set_name="dev"
+tgt_train_set_name="train-debug-100-10"
+tgt_dev_set_name="dev-debug"
 
 tsv_dir=${data_dir}/tsv
 
@@ -31,21 +31,20 @@ tsv_dir=${data_dir}/tsv
 
 if [ $stage -le 0 ] && [ $stop_stage -ge 0 ]; then
     log "Stage 0: Prepare features..."
-    mkdir -p ${tsv_dir}/raw/valid
-    mkdir -p ${tsv_dir}/raw/train
+    mkdir -p ${tsv_dir}/raw/${tgt_train_set_name}
+    mkdir -p ${tsv_dir}/raw/${tgt_dev_set_name}
     mkdir -p ${tsv_dir}/raw/test
 
     # set -x
     # # Process the valid set
-    # mkdir -p ${tsv_dir}/raw/valid
-    # python scripts/resample_wavs.py -i ${org_data_dir} -o ${tsv_dir}/raw/valid --splits ${dev_sets}
+    # python scripts/resample_wavs.py -i ${org_data_dir} -o ${tsv_dir}/raw/${tgt_dev_set_name} --splits ${dev_sets}
     # for split in ${dev_sets}; do
-    #     rsync -avz --include='*/' --include='*.tsv' --exclude='*' "${org_data_dir}/${split}/" "${tsv_dir}/raw/valid"
+    #     rsync -avz --include='*/' --include='*.tsv' --exclude='*' "${org_data_dir}/${split}/" "${tsv_dir}/raw/${tgt_dev_set_name}"
     # done
-    # python fairseq/examples/wav2vec/wav2vec_manifest.py ${tsv_dir}/raw/valid --dest ${tsv_dir}/valid --ext wav --valid-percent 0
-    # cp ${xvector_dir} ${tsv_dir}/raw/valid
+    # python fairseq/examples/wav2vec/wav2vec_manifest.py ${tsv_dir}/raw/${tgt_dev_set_name} --dest ${tsv_dir}/${tgt_dev_set_name} --ext wav --valid-percent 0
+    # cp ${xvector_dir} ${tsv_dir}/raw/${tgt_dev_set_name}
     # # Rename the file
-    # cp ${tsv_dir}/valid/train.tsv ${tsv_dir}/${tgt_dev_set_name}.tsv
+    # cp ${tsv_dir}/${tgt_dev_set_name}/train.tsv ${tsv_dir}/${tgt_dev_set_name}.tsv
 
     # # Process the test set
     # for split in ${test_sets}; do

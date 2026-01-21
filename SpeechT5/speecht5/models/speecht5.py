@@ -1338,12 +1338,21 @@ class T5TransformerModel(FairseqEncoderDecoderModel):
         else:
             incremental_states = None
         attns = []
+        
+        # Get the special token embeddings
+        special_token_embeds = self.text_decoder_prenet(kwargs["special_token_ids"].unsqueeze(0).repeat(ys.size(0), 1))[0]
         while True:
             # update index
             idx += 1
             # calculate output and stop prob at idx-th step
             decoder_in, _ = self.speech_decoder_prenet(ys, spkembs=spkembs)
-            z, extra = self.decoder(decoder_in[:,-1:], None, encoder_out, incremental_states, alignment_layer=-1)
+            if idx == 1:
+                # For the first step, we need to prepend the special token embeddings
+                decoder_in = torch.cat([decoder_in[:, :1, :], special_token_embeds, decoder_in[:, 1:, :]], dim=1)
+            else:
+                # For the following steps, we need to append the last output
+                decoder_in = decoder_in[:,-1:]
+            z, extra = self.decoder(decoder_in, None, encoder_out, incremental_states, alignment_layer=-1)
             outs += [self.speech_decoder_postnet.feat_out(z[0, -1]).view(self.reduction_factor, self.speech_decoder_postnet.odim)]  # [(r, odim), ...]
             probs += [torch.sigmoid(self.speech_decoder_postnet.prob_out(z[0, -1]))]  # [(r), ...]
 

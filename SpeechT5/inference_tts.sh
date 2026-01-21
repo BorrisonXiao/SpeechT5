@@ -55,11 +55,11 @@ expdir=exp
 
 lab_dir=${data_dir}/tts
 
-CHECKPOINT_PATH=exp/tts/20251219101956/checkpoint_best.pt
-tag=v4-checkpoint_best
+CHECKPOINT_PATH=exp/tts/debug-10/checkpoint_last.pt
+tag=debug-10-checkpoint_last
 DATA_ROOT=${lab_dir}
-SUBSETS="test-clean" # List of subsets
-# SUBSETS="speech_train" # List of subsets
+# SUBSETS="test-clean" # List of subsets
+SUBSETS="train-debug-100-10" # List of subsets
 BPE_TOKENIZER=$spm_model
 LABEL_DIR=$DATA_ROOT
 USER_DIR=speecht5

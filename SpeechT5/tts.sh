@@ -64,7 +64,7 @@ if [ $stage -le 1 ] && [ $stop_stage -ge 1 ]; then
     DATA_ROOT=${lab_dir}
     SAVE_DIR=${expdir}/tts/${JOBID}
     LABEL_DIR=${lab_dir}
-    TRAIN_SET="train-clean-460"
+    TRAIN_SET="train-clean-100"
     VALID_SET="dev"
     PT_CHECKPOINT_PATH=${pretrain_model}
 
@@ -76,7 +76,7 @@ if [ $stage -le 1 ] && [ $stop_stage -ge 1 ]; then
         --train-subset ${TRAIN_SET} \
         --valid-subset ${VALID_SET} \
         --hubert-label-dir ${LABEL_DIR} \
-        --distributed-world-size 1 \
+        --distributed-world-size 4 \
         --distributed-port 0 \
         --ddp-backend pytorch_ddp \
         --user-dir speecht5 \
@@ -91,10 +91,10 @@ if [ $stage -le 1 ] && [ $stop_stage -ge 1 ]; then
         --sample-rate 16000 \
         --sync-matrix-len 512 \
         --num-workers 0 \
-        --max-tokens 1600000 \
+        --max-tokens 1400000 \
         --update-freq 2 \
         --bpe-tokenizer ${spm_model} \
-        --max-tokens-valid 1600000 \
+        --max-tokens-valid 1400000 \
         \
         --criterion speecht5 \
         --report-accuracy \
@@ -111,21 +111,21 @@ if [ $stage -le 1 ] && [ $stop_stage -ge 1 ]; then
         --decoder-layerdrop 0.0 \
         --weight-decay 0.0 \
         --clip-norm 25.0 \
-        --lr 0.0001 \
+        --lr 0.0002 \
         --lr-scheduler inverse_sqrt \
-        --warmup-updates 500 \
+        --warmup-updates 1000 \
         --feature-grad-mult 1.0 \
         \
-        --max-update 64000 \
+        --max-update 80000 \
         --max-text-positions 600 \
         --min-speech-sample-size 1056 \
         --max-speech-sample-size 480256 \
         --max-speech-positions 1876 \
         --required-batch-size-multiple 1 \
-        --validate-after-updates 8000 \
+        --validate-after-updates 10000 \
         --skip-invalid-size-inputs-valid-test \
         --validate-interval 50 \
-        --save-interval-updates 4000 \
+        --save-interval-updates 5000 \
         --log-interval 10 \
         \
         --arch t5_transformer_base_asr \
