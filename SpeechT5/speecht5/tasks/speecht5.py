@@ -407,6 +407,7 @@ class SpeechT5Task(LegacyFairseqTask):
                 store_labels=False,
                 tgt_dict=self.dicts["text"],
                 tokenizer=bpe_tokenizer,
+                # TODO: Add task and language tags
             )
         elif self.t5_task == "t2s":
             ## For text to speech task

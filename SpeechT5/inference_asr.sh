@@ -1,28 +1,9 @@
 #!/usr/bin/env bash
-#
-#SBATCH --job-name=inference_asr
-#SBATCH --nodes=1
-#SBATCH --gpus=1
-#SBATCH --ntasks=1
-#SBATCH --cpus-per-task=8
-#SBATCH --partition=reserve_q
-#SBATCH --account=reserve
-#SBATCH --time=240:00:00
-#SBATCH --output=logs/inference_asr/%j.out
 
-# . ~/.bashrc
-
-module purge
-module load conda
-module load cuda/12.4
-/bin/hostname
 nvidia-smi
 nvcc --version
 
-# conda deactivate && conda activate /home/cxiao7/research/discrete/espnet_meili/tools/miniconda/envs/mult5
-conda deactivate && conda deactivate
 . $(conda info --base)/etc/profile.d/conda.sh && conda deactivate && conda activate mult5
-export LD_LIBRARY_PATH=$HOME/research/discrete/espnet_meili/tools/miniconda/envs/mult5/lib/python3.9/site-packages/nvidia/nvjitlink/lib:$LD_LIBRARY_PATH
 export PYTHONPATH=$PYTHONPATH:$PWD/fairseq
 # Forces all CUDA operations to execute in order and completely finish before moving forward.
 export CUDA_LAUNCH_BLOCKING=1
@@ -59,7 +40,7 @@ export PYTORCH_CUDA_ALLOC_CONF=garbage_collection_threshold:0.8
 # Disable P2P to avoid hangs (doesn't quite work though)
 # export NCCL_P2P_DISABLE=1
 
-# export CUDA_VISIBLE_DEVICES=0,1
+export CUDA_VISIBLE_DEVICES=7
 
 set -eou pipefail
 
@@ -70,7 +51,7 @@ log() {
 }
 
 data_dir=data
-spm_model=models/self_trained/spm_bpe_3000.model.model
+spm_model=models/spm_char.model
 expdir=exp
 
 lab_dir=${data_dir}/asr
@@ -78,23 +59,23 @@ lab_dir=${data_dir}/asr
 eval_script=scripts/wer.py
 
 # CHECKPOINT_PATH=exp/asr/v1.4/checkpoint_best.pt
-CHECKPOINT_PATH=exp/asr/v1.4/checkpoint_24_80000.pt
-tag=v1.4-checkpoint_24_80000
+CHECKPOINT_PATH=exp/asr/debug/checkpoint_1_2000.pt
+tag=debug
 # CHECKPOINT_PATH=exp/asr/v1.1/checkpoint_2_5000.pt
 # CHECKPOINT_PATH=exp/asr/v1.3/checkpoint_5_16000.pt
 DATA_ROOT=${lab_dir}
 # SUBSETS="dev_clean dev_other test-clean test-other"  # List of subsets
 # SUBSETS="test-clean test-other" # List of subsets
-SUBSETS="test-clean.chunked" # List of subsets
+# SUBSETS="test-clean" # List of subsets
+SUBSETS="speech_train" # List of subsets
 BPE_TOKENIZER=$spm_model
 LABEL_DIR=$DATA_ROOT
 USER_DIR=speecht5
-BEAM=10 #10
+BEAM=1 #10
 MAX_TOKENS=4000000
-BATCH_SIZE=4
+BATCH_SIZE=1
 CTC_WEIGHT=0
 LM_WEIGHT=0
-JOBID=$(date +%Y%m%d%H%M%S)
 
 . scripts/parse_options.sh || exit 1;
 
@@ -114,7 +95,6 @@ for SUBSET in $SUBSETS; do
             --user-dir ${USER_DIR} \
             --task speecht5 \
             --t5-task s2t \
-            --encoder-seq-len 999 \
             --model-parallel-size 1 \
             --path ${CHECKPOINT_PATH} \
             --hubert-label-dir ${LABEL_DIR} \
@@ -141,7 +121,6 @@ for SUBSET in $SUBSETS; do
             --task speecht5 \
             --t5-task s2t \
             --model-parallel-size 1 \
-            --encoder-seq-len 999 \
             --path ${CHECKPOINT_PATH} \
             --hubert-label-dir ${LABEL_DIR} \
             --lm-weight ${LM_WEIGHT} \
@@ -154,7 +133,7 @@ for SUBSET in $SUBSETS; do
             --max-len-b 620 \
             --sample-rate 16000 \
             --results-path ${SAVE_DIR}/${SUBSET}_BEAM_${BEAM}.out \
-            --num-workers 2
+            --num-workers 0
 
         echo "Finished processing subset: ${SUBSET}. Last line saved to ${SAVE_DIR}/${SUBSET}_BEAM_${BEAM}.log"
     fi

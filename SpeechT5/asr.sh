@@ -1,27 +1,9 @@
 #!/usr/bin/env bash
-#
-#SBATCH --job-name=ft_asr
-#SBATCH --nodes=1
-#SBATCH --gpus=4
-#SBATCH --ntasks=1
-#SBATCH --cpus-per-task=8
-#SBATCH --partition=reserve_q
-#SBATCH -w d01
-#SBATCH --account=reserve
-#SBATCH --time=240:00:00
-#SBATCH --output=logs/asr/%j.out
 
-. ~/.bashrc
-
-module purge
-module load conda
-module load cuda/12.4
-/bin/hostname
 nvidia-smi
 nvcc --version
 
-conda activate /home/cxiao7/research/discrete/espnet_meili/tools/miniconda/envs/mult5
-export LD_LIBRARY_PATH=$HOME/research/discrete/espnet_meili/tools/miniconda/envs/mult5/lib/python3.9/site-packages/nvidia/nvjitlink/lib:$LD_LIBRARY_PATH
+. $(conda info --base)/etc/profile.d/conda.sh && conda deactivate && conda activate mult5
 export PYTHONPATH=$PYTHONPATH:$PWD/fairseq
 # Forces all CUDA operations to execute in order and completely finish before moving forward.
 export CUDA_LAUNCH_BLOCKING=1
@@ -66,9 +48,8 @@ log() {
 
 data_dir=data
 expdir=exp
-spm_model=models/self_trained/spm_bpe_3000.model.model
-# pretrain_model=exp/pretrain/mel_v1/checkpoint_5_73000.pt
-pretrain_model=exp/pretrain/mel_v1/checkpoint_last.pt
+spm_model=models/spm_char.model
+pretrain_model=exp/pretrain/v3/checkpoint_2_200000.pt
 
 stage=1
 stop_stage=1
@@ -84,7 +65,8 @@ if [ $stage -le 1 ] && [ $stop_stage -ge 1 ]; then
     DATA_ROOT=${lab_dir}
     SAVE_DIR=${expdir}/asr/${JOBID}
     LABEL_DIR=${lab_dir}
-    TRAIN_SET="speech_train"
+    # TRAIN_SET="speech_train"
+    TRAIN_SET="speech_valid"
     VALID_SET="speech_valid"
     PT_CHECKPOINT_PATH=${pretrain_model}
 
@@ -110,14 +92,9 @@ if [ $stage -le 1 ] && [ $stop_stage -ge 1 ]; then
         --task speecht5 \
         --t5-task s2t \
         --sample-rate 16000 \
-        --encoder-seq-len 999 \
-        --num-workers 2 \
-        --max-tokens 20000000 \
-        --max-speech-sample-size 320000 \
-        --min-speech-sample-size 16000 \
-        --mel-hop-scale 2 \
-        --batch-size 20 \
-        --batch-size-valid 64 \
+        --sync-matrix-len 512 \
+        --num-workers 0 \
+        --max-tokens 4000000 \
         --update-freq 1 \
         --bpe-tokenizer ${spm_model} \
         \
@@ -139,16 +116,14 @@ if [ $stage -le 1 ] && [ $stop_stage -ge 1 ]; then
         --final-lr-scale 0.05 \
         \
         --max-update 80000 \
-        --max-text-positions 999 \
+        --max-text-positions 600 \
         --required-batch-size-multiple 1 \
         --save-interval-updates 2000 \
-        --log-interval 20 \
+        --log-interval 10 \
         --skip-invalid-size-inputs-valid-test \
         \
         --arch t5_transformer_base_asr \
         --encoder-speech-prenet mel \
-        --encoder-layers 8 \
-        --speech-prenet-encoder-layers 10 \
         --share-input-output-embed \
         --find-unused-parameters \
         --bert-init \
@@ -158,9 +133,8 @@ if [ $stage -le 1 ] && [ $stop_stage -ge 1 ]; then
         --keep-last-epochs 4 \
         --feature-grad-mult 1.0 \
         --best-checkpoint-metric s2t_accuracy \
-        --decoder-input-mode concat \
         --maximize-best-checkpoint-metric \
-        --clear-cache-threshold 71680 \
+        --clear-cache-threshold 35840 \
         --finetune-from-model ${PT_CHECKPOINT_PATH} \
         --load-checkpoint-on-all-dp-ranks
 fi

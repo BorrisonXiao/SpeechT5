@@ -249,8 +249,8 @@ class SpeechEncoderPrenet(nn.Module):
             positions = self.embed_positions(encoder_padding_mask)
             x = x + positions
 
-        # x = self.dropout_module(x)
         
+        # x = self.dropout_module(x)
         has_pads = encoder_padding_mask.any()
         x = x.transpose(0, 1)
         # Add the transformer encoder layers

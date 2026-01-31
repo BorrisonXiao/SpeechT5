@@ -340,7 +340,6 @@ class SpeechtoTextLoss(FairseqCriterion):
                 reduction="sum",
                 zero_infinity=self.zero_infinity,
             )
-
         return loss_ctc, lprobs, input_lengths
 
     ## for ce

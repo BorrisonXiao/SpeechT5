@@ -244,6 +244,7 @@ class TransformerDecoder(FairseqIncrementalDecoder):
             else:
                 self_attn_mask = None
 
+            breakpoint()
             x, layer_attn, _ = layer(
                 x,
                 enc,

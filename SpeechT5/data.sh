@@ -23,8 +23,8 @@ train_spm=false
 dict_path=${spm_dir}/dict.txt
 max_token_len=1249
 
-stage=5
-stop_stage=5
+stage=8
+stop_stage=8
 
 train_sets="train-clean-100 train-clean-360 train-other-500"
 dev_sets="dev-clean dev-other"
@@ -208,10 +208,10 @@ if [ $stage -le 6 ] && [ $stop_stage -ge 6 ]; then
     # for split in ${test_sets}; do
         # Generate the word-level labels
         python fairseq/examples/wav2vec/libri_labels.py ${tsv_dir}/${split}.tsv --output-dir ${tsv_dir} --output-name ${split}
-        # Lowercase the labels due to the pre-trained tokenizer
-        # scripts/lowercase_text.py \
-        #     -i ${tsv_dir}/${split}.wrd \
-        #     -o ${tsv_dir}/${split}.lc.wrd
+        # Lowercase the labels due to the TTS data
+        scripts/lowercase_text.py \
+            -i ${tsv_dir}/${split}.wrd \
+            -o ${tsv_dir}/${split}.lc.wrd
     done
 fi
 
@@ -241,10 +241,10 @@ if [ $stage -le 8 ] && [ $stop_stage -ge 8 ]; then
     ln -sfv ${PWD}/${text_dir}/bins/text_valid.* ${PWD}/${asr_data_dir}
     ln -sfv ${PWD}/${tsv_dir}/speech_valid_spk.tsv ${PWD}/${asr_data_dir}/speech_valid.tsv
     ln -sfv ${PWD}/${tsv_dir}/speech_train_spk.tsv ${PWD}/${asr_data_dir}/speech_train.tsv
-    ln -sfv ${PWD}/${tsv_dir}/speech_valid.ltr ${PWD}/${asr_data_dir}/speech_valid.txt
-    ln -sfv ${PWD}/${tsv_dir}/speech_train.ltr ${PWD}/${asr_data_dir}/speech_train.txt
+    ln -sfv ${PWD}/${tsv_dir}/speech_valid.lc.wrd ${PWD}/${asr_data_dir}/speech_valid.txt
+    ln -sfv ${PWD}/${tsv_dir}/speech_train.lc.wrd ${PWD}/${asr_data_dir}/speech_train.txt
     for split in ${test_sets}; do
-        ln -sfv ${PWD}/${tsv_dir}/${split}.ltr ${PWD}/${asr_data_dir}/${split}.txt
+        ln -sfv ${PWD}/${tsv_dir}/${split}.lc.wrd ${PWD}/${asr_data_dir}/${split}.txt
         ln -sfv ${PWD}/${tsv_dir}/${split}.tsv ${PWD}/${asr_data_dir}/${split}.tsv
     done
 fi

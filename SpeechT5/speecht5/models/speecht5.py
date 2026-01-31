@@ -74,11 +74,13 @@ class T5TransformerModel(FairseqEncoderDecoderModel):
         # Add modality vectors, 0 for text and 1 for speech
         self.modality_vectors = torch.nn.Embedding(2, args.encoder_embed_dim)
         # Add the synchronization matrix
-        self.sync_matrix = torch.nn.Parameter(
-            torch.empty(args.sync_matrix_len, args.encoder_embed_dim)
-        )
-        torch.nn.init.xavier_uniform_(self.sync_matrix)
-        self.sync_matrix_len = args.sync_matrix_len
+        if args.sync_matrix_len is not None:
+            self.sync_matrix = torch.nn.Parameter(
+                torch.empty(args.sync_matrix_len, args.encoder_embed_dim)
+            )
+            torch.nn.init.xavier_uniform_(self.sync_matrix)
+        else:
+            self.sync_matrix = torch.nn.Identity()
         # # Add the residual vector
         # self.residual_vector = torch.nn.Parameter(torch.randn(args.encoder_embed_dim))
         # Here we set the padding index to be an impossible value since we want to apply
@@ -657,19 +659,20 @@ class T5TransformerModel(FairseqEncoderDecoderModel):
             help="threshold for clearing cache, i.e. torch.cuda.empty_cache() will be called if "
             "the number of parameters in the model is larger than this value (in MiB)",
         )
-        parser.add_argument(
-            "--decoder-input-mode",
-            type=str,
-            choices=["concat", "prenet_only", "shared_only"],
-            default="concat",
-            help="the input mode of the decoder."
-            "e.g., concat - concatenate prenet and shared encoder output features;"
-            "prenet_only - use prenet output features only;"
-            "shared_only - use shared encoder output features only",
-        )
+        # parser.add_argument(
+        #     "--decoder-input-mode",
+        #     type=str,
+        #     choices=["concat", "prenet_only", "shared_only"],
+        #     default="shared_only",
+        #     help="the input mode of the decoder."
+        #     "e.g., concat - concatenate prenet and shared encoder output features;"
+        #     "prenet_only - use prenet output features only;"
+        #     "shared_only - use shared encoder output features only",
+        # )
         parser.add_argument(
             "--sync-matrix-len",
             type=int,
+            default=None,
             metavar="N",
             help="length of sync matrix to be added to encoder input",
         )
@@ -862,17 +865,20 @@ class T5TransformerModel(FairseqEncoderDecoderModel):
             encoder_input: The modified encoder input with synchronization vectors added, shape (B, T + sync_matrix_len, C).
             encoder_padding_mask: The modified encoder padding mask with synchronization vectors added, shape (B, T + sync_matrix_len).
         """
+        # TODO (Cihan): Remove
+        return encoder_input, encoder_padding_mask
         batch_size = encoder_input.size(0)
-        sync_expanded = sync_matrix.unsqueeze(0)
-        sync_expanded = sync_expanded.expand(batch_size, -1, -1)
+        # sync_expanded = sync_matrix.unsqueeze(0)
+        # sync_expanded = sync_expanded.expand(batch_size, -1, -1)
+        sync_expanded = sync_matrix.unsqueeze(0).repeat(batch_size, 1, 1)
         encoder_input = torch.cat([sync_expanded, encoder_input], dim=1)
         
-        # Pad the encoder padding mask with ones
+        # Pad the encoder padding masks
         pad_mask = torch.zeros(encoder_padding_mask.size(0), self.sync_matrix_len, dtype=torch.bool, device=encoder_padding_mask.device)
         encoder_padding_mask = torch.cat([encoder_padding_mask, pad_mask], dim=1)
         
         # Add the positional encoding to the synchronization matrix
-        encoder_input = encoder_input + self.encoder_embed_positions(encoder_padding_mask)
+        # encoder_input = encoder_input + self.encoder_embed_positions(encoder_padding_mask)
         
         # Add the modality vector to the shared-encoder's input
         encoder_input = encoder_input + self.modality_vectors(torch.tensor(input_type == 'speech', dtype=torch.long, device=encoder_input.device))
@@ -919,6 +925,8 @@ class T5TransformerModel(FairseqEncoderDecoderModel):
         argument in its input, which is not supported in torchscript. This
         method overwrites the forward method definition without **kwargs.
         """
+        # TODO (Cihan): Debug
+        self.sync_matrix_len = None
         assert source is not None or src_tokens is not None
         # padding_mask is not none only when input is waveform
         if source is None and padding_mask is None and not feature_only:
@@ -1005,7 +1013,6 @@ class T5TransformerModel(FairseqEncoderDecoderModel):
             encoder_input, encoder_padding_mask,
             tgt_layer=tgt_enc_layer,
             sync_matrix_len=self.sync_matrix_len,
-            extra_encoder_in=hubert_encoder_input if input_type == 'speech' else None,
             extra_encoder_padding_mask=hubert_padding_mask if input_type == 'speech' else None,
         )
 
@@ -1065,8 +1072,8 @@ class T5TransformerModel(FairseqEncoderDecoderModel):
             ).transpose(0, 1)
             
             if task_name is not None and (task_name == "speech_pretrain" or task_name == "text_pretrain"):
-                # Cihan: Here we update the residual part of the encoder output for pretraining tasks
-                encoder_output["encoder_out_residual"] = encoder_output["encoder_out"][0][:self.sync_matrix_len, :, :]
+                # Cihan: Here we update the sync part of the encoder output for pretraining tasks
+                encoder_output["encoder_out_sync"] = encoder_output["encoder_out"][0][:self.sync_matrix_len, :, :]
 
             # encoder_output["encoder_out"][0] = q["x"].transpose(0, 1)
             if output_type == 'speech':
@@ -1275,6 +1282,9 @@ class T5TransformerModel(FairseqEncoderDecoderModel):
             for key in removed_keys:
                 state_dict.pop(key, None)
                 logger.info(f"removed loaded checkpoint: {key}")
+
+        # Cihan: LOAD TOP-LEVEL PARAMETERS FIRST!!
+        super().load_state_dict(state_dict, strict=False)
         for m in self._modules.keys():
             m_state_dict = {
                 key.replace(f"{m}.", ""): value for key, value in state_dict.items() if key.startswith(f"{m}.")
@@ -1368,21 +1378,8 @@ class T5TransformerModel(FairseqEncoderDecoderModel):
                 encoder_input,
                 encoder_padding_mask,
                 sync_matrix_len=self.sync_matrix_len,
-                extra_encoder_in=orginal_encoder_input,
                 extra_encoder_padding_mask=orginal_encoder_padding_mask,
             )
-
-            if self.args.decoder_input_mode == "concat":
-                # Apply the modality vector to the hubert encoder input
-                prenet_features = orginal_encoder_input + self.modality_vectors(torch.tensor(1, dtype=torch.long, device=orginal_encoder_input.device))
-                # Concat the prenet features with the encoder output
-                encoder_output["encoder_out"] = [torch.cat([encoder_output["encoder_out"][0].transpose(0, 1), prenet_features], dim=1).transpose(0, 1)]
-                # Concat the corresponding padding mask
-                encoder_output["encoder_padding_mask"] = [torch.cat([encoder_output["encoder_padding_mask"][0], orginal_encoder_padding_mask], dim=1)]
-            elif self.args.decoder_input_mode == "prenet_only":
-                # Use only the prenet features as the input of the decoder
-                encoder_output["encoder_out"] = [orginal_encoder_input.transpose(0, 1)]
-                encoder_output["encoder_padding_mask"] = [orginal_encoder_padding_mask]
         else:
             # Encoder
             encoder_output = self.encoder(
@@ -1410,19 +1407,7 @@ class T5TransformerModel(FairseqEncoderDecoderModel):
             )
         else:
             encoder_output = self.encoder(encoder_input, encoder_padding_mask)
-        
-        if self.args.decoder_input_mode == "concat":
-            # Apply the modality vector to the text encoder input
-            prenet_features = orginal_encoder_input + self.modality_vectors(torch.tensor(0, dtype=torch.long, device=orginal_encoder_input.device))
-            # Concat the prenet features with the encoder output
-            encoder_output["encoder_out"] = [torch.cat([encoder_output["encoder_out"][0].transpose(0, 1), prenet_features], dim=1).transpose(0, 1)]
-            # Concat the corresponding padding mask
-            encoder_output["encoder_padding_mask"] = [torch.cat([encoder_output["encoder_padding_mask"][0], original_encoder_padding_mask], dim=1)]
-        elif self.args.decoder_input_mode == "prenet_only":
-            # Use only the prenet features as the input of the decoder
-            encoder_output["encoder_out"] = [orginal_encoder_input.transpose(0, 1)]
-            encoder_output["encoder_padding_mask"] = [original_encoder_padding_mask]
-        
+
         encoder_output["prenet_out"] = orginal_encoder_input.transpose(0,1)
 
         return encoder_output
