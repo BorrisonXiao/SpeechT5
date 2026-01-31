@@ -13,7 +13,7 @@ org_data_dir=/export/fs06/cxiao7/LibriSpeech
 xvector_dir=/home/cxiao7/research/mult5/SpeechT5/SpeechT5/data/xvectors.zip
 dict_path=data/downloads/dict.txt
 
-stage=1
+stage=2
 stop_stage=2
 
 train_sets="train-clean-100"
@@ -99,7 +99,7 @@ if [ $stage -le 2 ] && [ $stop_stage -ge 2 ]; then
 
     # Link the text and speech pretrain data
     cp ${dict_path} ${PWD}/${asr_data_dir}/dict.txt
-    ln -sfv ${PWD}/${tsv_dir}/${tgt_dev_set_name}.tsv ${PWD}/${asr_data_dir}/${tgt_dev_set_name}.tsv
+    ln -sfv ${PWD}/${tsv_dir}/${tgt_dev_set_name}_spk.tsv ${PWD}/${asr_data_dir}/${tgt_dev_set_name}.tsv
     ln -sfv ${PWD}/${tsv_dir}/${tgt_train_set_name}_spk.tsv ${PWD}/${asr_data_dir}/${tgt_train_set_name}.tsv
     ln -sfv ${PWD}/${tsv_dir}/${tgt_dev_set_name}.lc.wrd ${PWD}/${asr_data_dir}/${tgt_dev_set_name}.txt
     ln -sfv ${PWD}/${tsv_dir}/${tgt_train_set_name}.lc.wrd ${PWD}/${asr_data_dir}/${tgt_train_set_name}.txt

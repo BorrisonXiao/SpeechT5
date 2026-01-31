@@ -47,7 +47,7 @@ log() {
     echo -e "$(date '+%Y-%m-%d %H:%M:%S') (${fname}:${BASH_LINENO[0]}:${FUNCNAME[1]}) $*"
 }
 
-data_dir=data/mtl-asr-tts
+data_dir=data
 expdir=exp
 spm_model=/home/cxiao7/research/mult5/SpeechT5/SpeechT5/models/spm_char.model
 pretrain_model=data/downloads/p4_v2/pretrain/exp/checkpoint_best.pt
@@ -55,17 +55,17 @@ pretrain_model=data/downloads/p4_v2/pretrain/exp/checkpoint_best.pt
 stage=1
 stop_stage=1
 
-lab_dir=${data_dir}/asr-tts
+lab_dir=${data_dir}/ASR/asr
 
 if [ $stage -le 1 ] && [ $stop_stage -ge 1 ]; then
     log "Stage 1: Run the MTL fine-tuning script..."
     JOBID=v0-$(date +%Y%m%d%H%M%S)
-    JOBID=debug
+    # JOBID=debug
     DATA_ROOT=${lab_dir}
     SAVE_DIR=${expdir}/mtl-asr-tts/${JOBID}
     LABEL_DIR=${lab_dir}
-    TRAIN_SET="asr-train-clean-100|tts-train-clean-460"
-    VALID_SET="asr-dev-clean|tts-dev"
+    TRAIN_SET="train-clean-100|train-clean-100"
+    VALID_SET="dev-clean|dev-clean"
     PT_CHECKPOINT_PATH=${pretrain_model}
 
     mkdir -p ${SAVE_DIR}
@@ -76,7 +76,7 @@ if [ $stage -le 1 ] && [ $stop_stage -ge 1 ]; then
         --train-subset ${TRAIN_SET} \
         --valid-subset ${VALID_SET} \
         --hubert-label-dir ${LABEL_DIR} \
-        --distributed-world-size 1 \
+        --distributed-world-size 4 \
         --distributed-port 0 \
         --ddp-backend pytorch_ddp \
         --user-dir speecht5 \
@@ -92,40 +92,44 @@ if [ $stage -le 1 ] && [ $stop_stage -ge 1 ]; then
         --sync-matrix-len 512 \
         --num-workers 0 \
         --max-tokens 1600000 \
-        --update-freq 2 \
+        --update-freq 1 \
         --bpe-tokenizer ${spm_model} \
         --max-tokens-valid 1600000 \
         \
         --criterion speecht5 \
         --report-accuracy \
+        --zero-infinity \
+        --ce-weight 0.5 \
+        --ctc-weight 0.5 \
         --sentence-avg \
         \
         --optimizer adam \
         --reset-optimizer \
         --reset-dataloader \
+        --reset-meters \
         --adam-betas "(0.9, 0.98)" \
-        --dropout 0.15 \
-        --activation-dropout 0.15 \
-        --attention-dropout 0.15 \
+        --dropout 0.05 \
+        --activation-dropout 0.05 \
+        --attention-dropout 0.05 \
         --encoder-layerdrop 0.0 \
         --decoder-layerdrop 0.0 \
         --weight-decay 0.0 \
         --clip-norm 25.0 \
         --lr 0.0001 \
         --lr-scheduler inverse_sqrt \
-        --warmup-updates 500 \
+        --warmup-updates 15000 \
         --feature-grad-mult 1.0 \
         \
-        --max-update 160000 \
+        --max-update 120000 \
         --max-text-positions 600 \
         --min-speech-sample-size 1056 \
         --max-speech-sample-size 480256 \
         --max-speech-positions 1876 \
         --required-batch-size-multiple 1 \
-        --validate-after-updates 8000 \
+        --validate-after-updates 10000 \
         --skip-invalid-size-inputs-valid-test \
-        --validate-interval 50 \
-        --save-interval-updates 4000 \
+        --validate-interval 5000 \
+        --save-interval-updates 10000 \
         --log-interval 10 \
         \
         --arch t5_transformer_base_asr \
@@ -133,11 +137,12 @@ if [ $stage -le 1 ] && [ $stop_stage -ge 1 ]; then
         --find-unused-parameters \
         --bert-init \
         --relative-position-embedding \
-        --freeze-encoder-updates 100 \
+        --freeze-encoder-updates 10000 \
+        --loss-weights="[20,0.1]" \
         \
         --keep-last-epochs 2 \
         --restore-file ${PT_CHECKPOINT_PATH} \
-        --clear-cache-threshold 36000 \
+        --clear-cache-threshold 23000 \
         --load-checkpoint-on-all-dp-ranks
 fi
         # --finetune-from-model ${PT_CHECKPOINT_PATH} \

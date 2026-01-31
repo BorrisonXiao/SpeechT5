@@ -55,20 +55,16 @@ spm_model=/home/cxiao7/research/mult5/SpeechT5/SpeechT5/models/spm_char.model
 expdir=exp
 
 lab_dir=${data_dir}/ASR/asr
+# lab_dir=${data_dir}/libriTTS/tts
 
 eval_script=scripts/wer.py
 
-# CHECKPOINT_PATH=exp/asr/v1.4/checkpoint_best.pt
-# CHECKPOINT_PATH=/home/cxiao7/research/mult5p4/SpeechT5/exp/asr/v4-20251210024750/checkpoint_13_45000.pt
-CHECKPOINT_PATH=/home/cxiao7/research/mult5p4/SpeechT5/exp/asr/v6-fixed-best-20251229124920/checkpoint_last.pt
-tag=v6-checkpoint_last
-# CHECKPOINT_PATH=exp/asr/v1.1/checkpoint_2_5000.pt
-# CHECKPOINT_PATH=exp/asr/v1.3/checkpoint_5_16000.pt
+CHECKPOINT_PATH=exp/mtl-asr-tts/v0-20260128151942/checkpoint_47_90000.pt
+tag=mtl-v0-checkpoint_47_90000
 DATA_ROOT=${lab_dir}
-# SUBSETS="dev_clean dev_other test-clean test-other"  # List of subsets
 SUBSETS="test-clean test-other" # List of subsets
-# SUBSETS="test-other" # List of subsets
-# SUBSETS="speech_train" # List of subsets
+# SUBSETS="test-clean" # List of subsets
+# SUBSETS="train-debug-100-10" # List of subsets
 BPE_TOKENIZER=$spm_model
 LABEL_DIR=$DATA_ROOT
 USER_DIR=speecht5
@@ -104,6 +100,7 @@ for SUBSET in $SUBSETS; do
             --batch-size ${BATCH_SIZE} \
             --beam ${BEAM} \
             --scoring wer \
+            --prefix-size 3 \
             --max-len-a 0 \
             --max-len-b 620 \
             --sample-rate 16000 \
@@ -130,6 +127,7 @@ for SUBSET in $SUBSETS; do
             --batch-size ${BATCH_SIZE} \
             --scoring wer \
             --log-interval 1 \
+            --prefix-size 3 \
             --max-len-a 0 \
             --max-len-b 620 \
             --sample-rate 16000 \
@@ -146,5 +144,3 @@ for SUBSET in $SUBSETS; do
         echo "Evaluation results saved to ${SAVE_DIR}/${SUBSET}_BEAM_${BEAM}.eval"
     fi
 done
-
-# --mel-hop-scale 2 \

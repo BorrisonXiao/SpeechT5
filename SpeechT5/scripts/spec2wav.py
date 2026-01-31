@@ -39,13 +39,13 @@ def main():
     parser.add_argument(
         "-i",
         "--input_dir",
-        default="/home/cxiao7/research/mult5p4/SpeechT5/exp/inference_tts/debug-checkpoint_best/train-debug-100",
+        default="/home/cxiao7/research/mult5p4/SpeechT5/exp/inference_tts/mtl-v0-checkpoint_47_90000/train-clean-100",
         help="Input directory containing .npy files",
     )
     parser.add_argument(
         "-o",
         "--output_dir",
-        default="/home/cxiao7/research/mult5p4/SpeechT5/exp/inference_tts/debug-checkpoint_best/train-debug-100_wav",
+        default="/home/cxiao7/research/mult5p4/SpeechT5/exp/inference_tts/mtl-v0-checkpoint_47_90000/train-clean-100_wav",
         help="Output directory for .wav files",
     )
     parser.add_argument(

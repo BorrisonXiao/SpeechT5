@@ -70,6 +70,7 @@ class SpeechT5Criterion(FairseqCriterion):
             ce_loss_lambda,
             use_guided_attn_loss,
             num_heads_applied_guided_attn=num_heads_applied_guided_attn,
+            loss_weights=loss_weights,
         )
         self.text_criterion = SpeechtoTextLoss(
             SpeechtoTextLossConfig,
@@ -79,7 +80,8 @@ class SpeechT5Criterion(FairseqCriterion):
             ignore_prefix_size,
             report_accuracy,
             ce_weight,
-            ctc_weight
+            ctc_weight,
+            loss_weights,
         )
         self.text_pretrain_criterion = TextPretrainCriterion(
             task,

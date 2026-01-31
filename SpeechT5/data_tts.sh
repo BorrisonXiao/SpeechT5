@@ -9,7 +9,7 @@ log() {
 }
 
 data_dir=data/libriTTS
-org_data_dir=/export/fs06/cxiao7/LibriTTS-debug
+org_data_dir=/export/fs06/cxiao7/LibriTTS
 xvector_dir=/home/cxiao7/research/mult5/SpeechT5/SpeechT5/data/xvectors.zip
 dict_path=data/ASR/asr/dict.txt
 
@@ -17,13 +17,13 @@ stage=0
 stop_stage=2
 
 # train_sets="train-clean-100 train-clean-360 train-other-500"
-train_sets="train-debug-100-10"
-dev_sets="dev-debug"
+train_sets="train-clean-100 train-clean-360"
+dev_sets="dev-clean"
 test_sets="test-clean"
 fs=16000
 
-tgt_train_set_name="train-debug-100-10"
-tgt_dev_set_name="dev-debug"
+tgt_train_set_name="train-clean-norm-460"
+tgt_dev_set_name="dev-clean-norm"
 
 tsv_dir=${data_dir}/tsv
 
@@ -89,7 +89,8 @@ if [ $stage -le 1 ] && [ $stop_stage -ge 1 ]; then
         # Lowercase the labels due to the pre-trained tokenizer
         scripts/sanitize_tts_text.py \
             -i ${tsv_dir}/${split}.wrd \
-            -o ${tsv_dir}/${split}.lc.wrd
+            -o ${tsv_dir}/${split}.lc.wrd \
+            --normalize-text
     done
 fi
 

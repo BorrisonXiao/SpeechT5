@@ -49,17 +49,19 @@ log() {
     echo -e "$(date '+%Y-%m-%d %H:%M:%S') (${fname}:${BASH_LINENO[0]}:${FUNCNAME[1]}) $*"
 }
 
-data_dir=data/libriTTS
+data_dir=data
 spm_model=/home/cxiao7/research/mult5/SpeechT5/SpeechT5/models/spm_char.model
 expdir=exp
 
-lab_dir=${data_dir}/tts
+# lab_dir=${data_dir}/libriTTS/tts
+lab_dir=${data_dir}/ASR/asr
 
-CHECKPOINT_PATH=exp/tts/debug-10/checkpoint_last.pt
-tag=debug-10-checkpoint_last
+CHECKPOINT_PATH=exp/mtl-asr-tts/v0-20260128151942/checkpoint_47_90000.pt
+tag=mtl-v0-checkpoint_47_90000
 DATA_ROOT=${lab_dir}
 # SUBSETS="test-clean" # List of subsets
-SUBSETS="train-debug-100-10" # List of subsets
+# SUBSETS="train-debug-100-10" # List of subsets
+SUBSETS="train-clean-100" # List of subsets
 BPE_TOKENIZER=$spm_model
 LABEL_DIR=$DATA_ROOT
 USER_DIR=speecht5

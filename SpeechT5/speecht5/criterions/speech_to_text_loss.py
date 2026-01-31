@@ -121,6 +121,7 @@ class SpeechtoTextLoss(FairseqCriterion):
         report_accuracy=False,
         ce_weight=1.0,
         ctc_weight=0.0,
+        loss_weights=None,
     ):
 
         super().__init__(task)
@@ -183,6 +184,9 @@ class SpeechtoTextLoss(FairseqCriterion):
         else:
             logger.info("ERROR")
 
+        # for multi-task losses
+        self.loss_weights = loss_weights
+
     def forward(self, model, sample, reduce=True):
 
         if self.ce_weight == 0 and self.ctc_weight > 0:
@@ -213,6 +217,9 @@ class SpeechtoTextLoss(FairseqCriterion):
         )
 
         sample_size = sample["target"].size(0) if self.sentence_avg else ntokens
+
+        if self.loss_weights is not None and len(self.loss_weights) >= 2:
+            loss = loss * self.loss_weights[1]
 
         logging_output = {
             "loss": loss.item(),

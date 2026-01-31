@@ -1151,6 +1151,7 @@ class T5TransformerModel(FairseqEncoderDecoderModel):
             }
             if hasattr(self, m):
                 self._modules[m].load_state_dict(m_state_dict, False)
+        
         return self
 
     def prune_modules(self, modules_filter=None):
@@ -1317,6 +1318,8 @@ class T5TransformerModel(FairseqEncoderDecoderModel):
             assert source.size(0) == 1
             encoder_out = self.forward_encoder(source, padding_mask=kwargs["padding_mask"])
             maxlenratio = kwargs.get("threshold", 10.0)
+
+        breakpoint()
 
         if spkembs is not None and self.spk_embed_integration_type != "pre":
             encoder_out["encoder_out"] = [self._integrate_with_spk_embed(

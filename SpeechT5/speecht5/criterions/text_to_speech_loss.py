@@ -96,6 +96,7 @@ class TexttoSpeechLoss(FairseqCriterion):
         num_layers_applied_guided_attn=2,
         num_heads_applied_guided_attn=2,
         modules_applied_guided_attn=["encoder-decoder"],
+        loss_weights=None,
     ):
         super().__init__(task)
         self.sentence_avg = sentence_avg
@@ -123,6 +124,7 @@ class TexttoSpeechLoss(FairseqCriterion):
                 sigma=guided_attn_loss_sigma,
                 alpha=guided_attn_loss_lambda,
             )
+        self.loss_weights = loss_weights
 
     def forward(self, model, sample):
         """Compute the loss for the given sample.
@@ -140,6 +142,10 @@ class TexttoSpeechLoss(FairseqCriterion):
         #     sample["target"].size(0) if self.sentence_avg else sample["nframes"]
         # )
         sample_size = 1
+
+        if self.loss_weights is not None:
+            loss = loss * self.loss_weights[0]
+            
         logging_output = {
             "loss": loss.item(),
             "l1_loss": l1_loss.item(),

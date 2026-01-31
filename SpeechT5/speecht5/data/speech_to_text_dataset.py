@@ -139,10 +139,10 @@ class SpeechToTextDataset(FairseqDataset):
         if self.tokenizer is not None:
             label = self.tokenizer.encode(label)
 
-        # Add the task-specific special tokens for multi-tasking in the
-        # following manner: <|task|> <|src_lang|> <|tgt_lang|>
-        # e.g., <|asr|> <|en|> <|en|>
-        label = f"{self.task} {self.src_lang} {self.tgt_lang} " + label
+        # # Add the task-specific special tokens for multi-tasking in the
+        # # following manner: <|task|> <|src_lang|> <|tgt_lang|>
+        # # e.g., <|asr|> <|en|> <|en|>
+        # label = f"{self.task} {self.src_lang} {self.tgt_lang} " + label
 
         if self.label_processors is not None:
             label = self.label_processors[label_idx](label)
@@ -175,6 +175,17 @@ class SpeechToTextDataset(FairseqDataset):
         targets_by_label = [
             [s["label_list"][i] for s in samples] for i in range(self.num_labels)
         ]
+        special_tokens = f"{self.task} {self.src_lang} {self.tgt_lang} "
+        special_token_ids = [
+            self.label_processors[i](special_tokens) for i in range(self.num_labels)
+        ]
+
+        # Prepend special tokens for task control
+        for i in range(self.num_labels):
+            for j in range(len(targets_by_label[i])):
+                targets_by_label[i][j] = torch.cat(
+                    (special_token_ids[i], targets_by_label[i][j]), 0
+                )
         targets_list, lengths_list, ntokens_list = self.collater_label(targets_by_label)
 
         decoder_label = [
