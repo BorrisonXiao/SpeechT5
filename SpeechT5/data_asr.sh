@@ -98,7 +98,7 @@ if [ $stage -le 2 ] && [ $stop_stage -ge 2 ]; then
     mkdir -p ${asr_data_dir}
 
     # Link the text and speech pretrain data
-    cp ${dict_path} ${PWD}/${asr_data_dir}/dict.txt
+    # cp ${dict_path} ${PWD}/${asr_data_dir}/dict.txt
     ln -sfv ${PWD}/${tsv_dir}/${tgt_dev_set_name}_spk.tsv ${PWD}/${asr_data_dir}/${tgt_dev_set_name}.tsv
     ln -sfv ${PWD}/${tsv_dir}/${tgt_train_set_name}_spk.tsv ${PWD}/${asr_data_dir}/${tgt_train_set_name}.tsv
     ln -sfv ${PWD}/${tsv_dir}/${tgt_dev_set_name}.lc.wrd ${PWD}/${asr_data_dir}/${tgt_dev_set_name}.txt

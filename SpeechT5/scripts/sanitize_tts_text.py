@@ -23,19 +23,28 @@ def remove_unclosed_quotes(text: str) -> str:
             
     return text
 
-def normalize_content(text: str) -> str:
-    """Keep only English characters (A-Z, a-z) and lowercase everything."""
-    # This regex keeps only a-z and A-Z, then we lowercase the result
-    text = re.sub(r'[^a-zA-Z\s]', '', text)
+def normalize_content(text: str, keep_puncs: list = None) -> str:
+    """
+    Keep only English characters (A-Z, a-z) and lowercase everything.
+    Optionally keep specific punctuation marks.
+    """
+    # Escape punctuation marks to ensure they are safe for Regex
+    escaped_puncs = "".join([re.escape(p) for p in keep_puncs]) if keep_puncs else ""
+    
+    # Create pattern: match anything NOT (^) a-z, A-Z, whitespace, or allowed puncs
+    pattern = rf"[^a-zA-Z\s{escaped_puncs}]"
+    
+    text = re.sub(pattern, '', text)
     return text.lower()
 
 def sanitize_text(
     input_path: Path,
     output_path: Path,
     normalize: bool = False,
+    keep_puncs: list = None,
     encoding: str = "utf-8"
 ) -> None:
-    """Sanitize file contents by removing unclosed quotes and optionally normalizing."""
+    """Sanitize file contents based on quote logic and normalization rules."""
     try:
         with input_path.open("r", encoding=encoding) as infile, \
              output_path.open("w", encoding=encoding) as outfile:
@@ -46,27 +55,28 @@ def sanitize_text(
                 
                 # 2. Optional Normalization
                 if normalize:
-                    processed = normalize_content(processed)
+                    processed = normalize_content(processed, keep_puncs)
                 
-                # Write non-empty lines (or adjust if you want to keep blank lines)
                 outfile.write(processed.strip() + "\n")
                 
-        print(f"Successfully created: {output_path}")
+        print(f"Successfully processed: {output_path}")
         
     except Exception as e:
-        print(f"Error processing {input_path}: {e}")
+        print(f"Error: {e}")
         raise
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Sanitize text file by removing unclosed quotation marks and normalizing text."
+        description="Sanitize text file with quote removal and optional normalization."
     )
     parser.add_argument("-i", "--input", type=Path, required=True,
-                        help="Input file to process")
+                        help="Input file")
     parser.add_argument("-o", "--output", type=Path, required=True,
-                        help="Output file for sanitized text")
+                        help="Output file")
     parser.add_argument("--normalize-text", action="store_true",
-                        help="Keep only English characters and lowercase everything")
+                        help="Keep only English characters and lowercase")
+    parser.add_argument("--keep-puncs", nargs="+", default=[",", ".", "!", "?"],
+                        help="Punctuation marks to keep (e.g., . , ! ?)")
     parser.add_argument("--encoding", type=str, default="utf-8",
                         help="File encoding (default: utf-8)")
 
@@ -76,6 +86,7 @@ def main():
         input_path=args.input,
         output_path=args.output,
         normalize=args.normalize_text,
+        keep_puncs=args.keep_puncs,
         encoding=args.encoding
     )
 

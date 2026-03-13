@@ -4,7 +4,6 @@ nvidia-smi
 nvcc --version
 
 . $(conda info --base)/etc/profile.d/conda.sh && conda deactivate && conda activate mult5
-export LD_LIBRARY_PATH=$HOME/research/discrete/espnet_meili/tools/miniconda/envs/mult5/lib/python3.9/site-packages/nvidia/nvjitlink/lib:$LD_LIBRARY_PATH
 export PYTHONPATH=$PYTHONPATH:$PWD/fairseq
 # Forces all CUDA operations to execute in order and completely finish before moving forward.
 export CUDA_LAUNCH_BLOCKING=1
@@ -16,6 +15,7 @@ export NCCL_DEBUG=TRACE
 export NCCL_DEBUG_FILE=nccl_debug.log    # Log file for NCCL debug output
 export TORCH_DISTRIBUTED_DEBUG=DETAIL    # Provides granular communication debugging
 export TORCH_NCCL_ASYNC_ERROR_HANDLING=1 # Ensures errors propagate immediately
+export NCCL_ASYNC_ERROR_HANDLING=1
 
 # To avoid fragmentation issues, turns out doesn't help
 # export PYTORCH_CUDA_ALLOC_CONF=max_split_size_mb:128
@@ -49,23 +49,23 @@ log() {
 
 data_dir=data
 expdir=exp
-spm_model=/home/cxiao7/research/mult5/SpeechT5/SpeechT5/models/spm_char.model
-pretrain_model=data/downloads/p4_v2/pretrain/exp/checkpoint_best.pt
+spm_model=models/spm_char.model
+pretrain_model=exp/pretrain/v3/checkpoint_last.pt
 
 stage=1
 stop_stage=1
 
-lab_dir=${data_dir}/ASR/asr
+lab_dir=${data_dir}/mtl-asr-tts/asr-tts
 
 if [ $stage -le 1 ] && [ $stop_stage -ge 1 ]; then
     log "Stage 1: Run the MTL fine-tuning script..."
-    JOBID=v0-$(date +%Y%m%d%H%M%S)
+    JOBID=v1-$(date +%Y%m%d%H%M%S)
     # JOBID=debug
     DATA_ROOT=${lab_dir}
     SAVE_DIR=${expdir}/mtl-asr-tts/${JOBID}
     LABEL_DIR=${lab_dir}
-    TRAIN_SET="train-clean-100|train-clean-100"
-    VALID_SET="dev-clean|dev-clean"
+    TRAIN_SET="tts-train-clean-norm-460|asr-train-clean-100"
+    VALID_SET="tts-dev-clean-norm|asr-dev-clean"
     PT_CHECKPOINT_PATH=${pretrain_model}
 
     mkdir -p ${SAVE_DIR}
@@ -76,7 +76,7 @@ if [ $stage -le 1 ] && [ $stop_stage -ge 1 ]; then
         --train-subset ${TRAIN_SET} \
         --valid-subset ${VALID_SET} \
         --hubert-label-dir ${LABEL_DIR} \
-        --distributed-world-size 4 \
+        --distributed-world-size 8 \
         --distributed-port 0 \
         --ddp-backend pytorch_ddp \
         --user-dir speecht5 \
@@ -90,11 +90,11 @@ if [ $stage -le 1 ] && [ $stop_stage -ge 1 ]; then
         --t5-task mtl-asr-tts \
         --sample-rate 16000 \
         --sync-matrix-len 512 \
-        --num-workers 0 \
-        --max-tokens 1600000 \
+        --num-workers 4 \
+        --max-tokens 2500000 \
         --update-freq 1 \
         --bpe-tokenizer ${spm_model} \
-        --max-tokens-valid 1600000 \
+        --max-tokens-valid 2500000 \
         \
         --criterion speecht5 \
         --report-accuracy \
@@ -111,24 +111,24 @@ if [ $stage -le 1 ] && [ $stop_stage -ge 1 ]; then
         --dropout 0.05 \
         --activation-dropout 0.05 \
         --attention-dropout 0.05 \
-        --encoder-layerdrop 0.0 \
-        --decoder-layerdrop 0.0 \
+        --encoder-layerdrop 0.05 \
+        --decoder-layerdrop 0.05 \
         --weight-decay 0.0 \
-        --clip-norm 25.0 \
-        --lr 0.0001 \
+        --clip-norm 20.0 \
+        --lr 0.00001 \
         --lr-scheduler inverse_sqrt \
         --warmup-updates 15000 \
         --feature-grad-mult 1.0 \
         \
-        --max-update 120000 \
+        --max-update 240000 \
         --max-text-positions 600 \
-        --min-speech-sample-size 1056 \
+        --min-speech-sample-size 4096 \
         --max-speech-sample-size 480256 \
         --max-speech-positions 1876 \
         --required-batch-size-multiple 1 \
         --validate-after-updates 10000 \
         --skip-invalid-size-inputs-valid-test \
-        --validate-interval 5000 \
+        --validate-interval 10000 \
         --save-interval-updates 10000 \
         --log-interval 10 \
         \
@@ -138,11 +138,13 @@ if [ $stage -le 1 ] && [ $stop_stage -ge 1 ]; then
         --bert-init \
         --relative-position-embedding \
         --freeze-encoder-updates 10000 \
-        --loss-weights="[20,0.1]" \
+        --loss-weights="[20,0.05]" \
+        --mask-prob 0.5 \
+        --mask-channel-prob 0.5 \
         \
         --keep-last-epochs 2 \
         --restore-file ${PT_CHECKPOINT_PATH} \
-        --clear-cache-threshold 23000 \
+        --clear-cache-threshold 32000 \
         --load-checkpoint-on-all-dp-ranks
 fi
         # --finetune-from-model ${PT_CHECKPOINT_PATH} \
