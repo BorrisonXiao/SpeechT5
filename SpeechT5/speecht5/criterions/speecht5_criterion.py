@@ -50,6 +50,7 @@ class SpeechT5Criterion(FairseqCriterion):
         bce_pos_weight=5.0,
         bce_loss_lambda=1.0,
         use_guided_attn_loss=False,
+        guided_attn_loss_lambda=10.0,
         num_heads_applied_guided_attn=2,
         ce_weight=1.0,
         ctc_weight=0.0,
@@ -67,6 +68,7 @@ class SpeechT5Criterion(FairseqCriterion):
             bce_pos_weight,
             bce_loss_lambda,
             use_guided_attn_loss,
+            guided_attn_loss_lambda=guided_attn_loss_lambda,
             num_heads_applied_guided_attn=num_heads_applied_guided_attn,
         )
         self.text_criterion = SpeechtoTextLoss(

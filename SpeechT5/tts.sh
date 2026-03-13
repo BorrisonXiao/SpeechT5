@@ -47,57 +47,60 @@ log() {
     echo -e "$(date '+%Y-%m-%d %H:%M:%S') (${fname}:${BASH_LINENO[0]}:${FUNCNAME[1]}) $*"
 }
 
-data_dir=data/libriTTS
+data_dir=data/libriTTS_16k
 expdir=exp
 spm_model=/home/ec2-user/mult5/SpeechT5/models/spm_char.model
-pretrain_model=downloads/amir/pretrain/base/checkpoint_best.pt # Need to use Amir dict
-# pretrain_model=/home/ec2-user/t5/SpeechT5/downloads/baseline/tts/speecht5_tts.pt # Fine-tune from the downloaded baseline model
+# pretrain_model=downloads/amir/pretrain/base/checkpoint_best.pt # Need to use Amir dict
+pretrain_model=/home/ec2-user/t5/SpeechT5/downloads/baseline/tts/speecht5_tts.pt # Fine-tune from the downloaded baseline model
 
 stage=1
 stop_stage=1
 
-lab_dir=${data_dir}/tts
+lab_dir=${data_dir}
 
 if [ $stage -le 1 ] && [ $stop_stage -ge 1 ]; then
     log "Stage 1: Run the TTS fine-tuning script..."
-    JOBID=$(date +%Y%m%d%H%M%S)
+    JOBID=train-clean-100-v0-$(date +%Y%m%d%H%M%S)
     # JOBID=debug
     DATA_ROOT=${lab_dir}
     SAVE_DIR=${expdir}/tts/${JOBID}
     LABEL_DIR=${lab_dir}
-    TRAIN_SET="speech_train"
-    VALID_SET="speech_valid"
+    TRAIN_SET="train-clean-100"
+    VALID_SET="dev-clean"
     PT_CHECKPOINT_PATH=${pretrain_model}
 
     mkdir -p ${SAVE_DIR}
 
+    CUDA_VISIBLE_DEVICES=0,1,2,3,4,5 \
     fairseq-train ${DATA_ROOT} \
         --save-dir ${SAVE_DIR} \
         --tensorboard-logdir ${SAVE_DIR} \
         --train-subset ${TRAIN_SET} \
         --valid-subset ${VALID_SET} \
         --hubert-label-dir ${LABEL_DIR} \
-        --distributed-world-size 4 \
+        --distributed-world-size 6 \
         --distributed-port 0 \
         --ddp-backend pytorch_ddp \
         --user-dir speecht5 \
         --log-format simple \
         --seed 1 \
         --fp16 \
-        --fp16-scale-tolerance=0.2 \
+        --fp16-scale-tolerance=0.1 \
         --gradient-checkpointing \
         \
         --task speecht5 \
         --t5-task t2s \
         --sample-rate 16000 \
-        --sync-matrix-len 512 \
-        --num-workers 0 \
-        --max-tokens 2400000 \
+        --num-workers 4 \
+        --max-tokens 3200000 \
         --update-freq 1 \
         --bpe-tokenizer ${spm_model} \
-        --max-tokens-valid 2400000 \
+        --max-tokens-valid 3200000 \
         \
         --criterion speecht5 \
+        --use-guided-attn-loss \
+        --guided-attn-loss-lambda 100.0 \
+        --bce-loss-lambda 10.0 \
         --report-accuracy \
         --sentence-avg \
         \
@@ -112,20 +115,20 @@ if [ $stage -le 1 ] && [ $stop_stage -ge 1 ]; then
         --decoder-layerdrop 0.0 \
         --weight-decay 0.0 \
         --clip-norm 25.0 \
-        --lr 0.0001 \
+        --lr 0.00005 \
         --lr-scheduler inverse_sqrt \
-        --warmup-updates 500 \
+        --warmup-updates 10000 \
         --feature-grad-mult 1.0 \
         \
-        --max-update 48000 \
+        --max-update 32000 \
         --max-text-positions 600 \
-        --min-speech-sample-size 1056 \
+        --min-speech-sample-size 2048 \
         --max-speech-sample-size 480256 \
         --max-speech-positions 1876 \
         --required-batch-size-multiple 1 \
-        --validate-after-updates 8000 \
+        --validate-after-updates 32000 \
         --skip-invalid-size-inputs-valid-test \
-        --validate-interval 50 \
+        --validate-interval 500 \
         --save-interval-updates 2000 \
         --log-interval 10 \
         \
@@ -134,7 +137,7 @@ if [ $stage -le 1 ] && [ $stop_stage -ge 1 ]; then
         --find-unused-parameters \
         --bert-init \
         --relative-position-embedding \
-        --freeze-encoder-updates 100 \
+        --freeze-encoder-updates 0 \
         \
         --keep-last-epochs 2 \
         --restore-file ${PT_CHECKPOINT_PATH} \
